@@ -176,12 +176,10 @@ class VoiceGraph {
 					if (currentPhone != null && currentPhone.F[0]  &&isVowel) {
 						playingClip.marker.setAttribute('data-pitch', pitchPercent(currentPhone.F[0]));
 					}
-					if (currentPhone.F_stdevs && isVowel) {
-						playingClip.marker.setAttribute('data-resonance', clamp(0, 1, 
-							((0.7321428571428571 * currentPhone.F_stdevs[1] 
-							+ 0.26785714285714285 * currentPhone.F_stdevs[2] 
-							/*+ 0 * currentPhone.F_stdevs[3]*/) + 2) / 4
-						));
+					// Use the backend's per-phone resonance so playback is on the
+					// same scale as the clip's median and the details panel.
+					if (currentPhone.resonance != null && isVowel) {
+						playingClip.marker.setAttribute('data-resonance', currentPhone.resonance);
 					}
 				}
 			}
