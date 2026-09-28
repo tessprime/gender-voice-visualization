@@ -225,8 +225,11 @@
 			fetch('./backend.cgi', { method: 'POST', body: formData})
 			.then(response => {
 				if (!response.ok) throw new Error(response.status);
-				if (response.headers.get('Content-Length') < 2) return {};
-				return response.json();
+				// Not every server sends Content-Length (Python's CGI server
+				// doesn't), so check the body itself.
+				return response.text();
+			}).then(text => {
+				return text.trim().length < 2 ? {} : JSON.parse(text);
 			}).then(data => {
 				$('button.new-clip').classList.remove('hidden');
 				$('button.new-clip + .spinner').classList.add('hidden');
@@ -239,7 +242,8 @@
 				globalState.set('playingClip', clip);
 				globalState.set('previewClip', clip);
 
-			}).catch(() => {
+			}).catch(error => {
+				console.error('Failed to process recording:', error);
 				alert(
 					"Sorry, we weren't able to process your recording. " +
 					"Make sure to speak clearly and ensure " +
