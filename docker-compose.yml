@@ -11,3 +11,6 @@ services:
     volumes:
       # Mount the working tree so local changes are picked up without a rebuild.
       - .:/app
+      # Keep each clip's working files (audio, MFA logs, TextGrid) on the host.
+      # Must be world-writable: the CGI runs as `nobody`.
+      - ./rec:/rec

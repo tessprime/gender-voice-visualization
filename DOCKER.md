@@ -23,9 +23,16 @@ runs reuse the cached image. You only need to rebuild after changing the
 ## Notes
 
 - Processing a recording takes about a minute, most of it in MFA.
-- Uploads are processed in `/rec` inside the container. Failed runs leave
-  their working directory there for debugging:
-  `docker compose exec web ls /rec`.
+- Uploads are processed in `/rec` inside the container, which is mounted from
+  `./rec` in your checkout. With `"dev": true` in `settings.json`, every clip's
+  directory is kept, successful or not. It holds the original upload (`orig`),
+  the cleaned audio, `align.log` (aligner console output), `mfa_logs/` (MFA's
+  per-step logs, e.g. `alignment/log/align.1.log`) and `output/` (the
+  TextGrid, if alignment succeeded). To rerun alignment by hand:
+  `docker compose exec web bash -c 'cd /rec/<id> && ./align.sh'`.
+- `./rec` must be world-writable because the CGI runs as `nobody`.
+  `docker-dev.sh` handles this. With compose, run
+  `mkdir -p rec && chmod a+rwx rec` once.
 - Request logging (`logs` in `settings.json`) is off in the container because
   the log directory doesn't exist. Logging also needs the non-public
   `countries.mmdb` GeoIP file.

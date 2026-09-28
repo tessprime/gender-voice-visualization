@@ -1,7 +1,4 @@
-
-print('preprocessing.py: dir() -> ', dir())
-print('preprocessing.py: __name__ -> ', __name__)
-import subprocess, os, glob, shutil
+import subprocess, os, glob, shutil, sys
 import magic
 
 from . import settings as settings_module
@@ -98,16 +95,27 @@ def process(uploaded_file, transcript, tmp_dir):
 
 	try:
 		# shell out so we can `source`
-		subprocess.check_output(['./align.sh'], stderr=subprocess.STDOUT) 
+		align_output = subprocess.check_output(['./align.sh'], stderr=subprocess.STDOUT) 
 	except subprocess.CalledProcessError as e:
-		print("CalledProcessError")
-		print(e)
-		print(str(e.output, 'utf-8'))
+		align_output = e.output
+		# stdout is the HTTP response; diagnostics go to stderr (the server log).
+		print(e, file=sys.stderr)
+		print(str(e.output, 'utf-8'), file=sys.stderr)
 	except Exception as e:
-		print("Error")
-		print(e)
+		align_output = str(e).encode('utf-8')
+		print("Error running align.sh:", e, file=sys.stderr)
 	
 	os.chdir(cwd)
+
+	# Keep the aligner's console output and MFA's own logs next to the clip.
+	# MFA's working directory is shared by every run and wiped on the next one.
+	with open(tmp_dir + '/align.log', 'wb') as f:
+		f.write(align_output)
+	mfa_root = os.environ.get('MFA_ROOT_DIR', os.path.expanduser('~/Documents/MFA'))
+	for log in glob.glob(mfa_root + '/corpus/**/log/*.log', recursive=True):
+		dest = tmp_dir + '/mfa_logs/' + os.path.relpath(log, mfa_root + '/corpus')
+		os.makedirs(os.path.dirname(dest), exist_ok=True)
+		shutil.copy(log, dest)
 
 
 	################## Phonetic Processing ##################
@@ -122,5 +130,6 @@ def process(uploaded_file, transcript, tmp_dir):
 		with open(grid.replace('.TextGrid', '.tsv'), 'w') as f:
 			f.write(praat_output)
 
-		shutil.rmtree(tmp_dir)
+		if not settings['dev']:
+			shutil.rmtree(tmp_dir)
 		return praat_output
