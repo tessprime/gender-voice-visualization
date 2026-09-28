@@ -7,6 +7,9 @@ settings = settings_module.settings
 
 mfa_root = os.environ.get('MFA_ROOT_DIR', os.path.expanduser('~/Documents/MFA'))
 
+# See mfa_patches/sitecustomize.py.
+mfa_patches = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mfa_patches')
+
 def write_dictionary(transcript, path):
 	"""Write the pronunciation dictionary entries for the transcript's words to
 	`path`, and return the dictionary argument to pass to `mfa align`.
@@ -114,6 +117,7 @@ def process(uploaded_file, transcript, tmp_dir):
 		f.write("""#!/usr/bin/env bash
 		source /opt/conda/etc/profile.d/conda.sh
 		conda activate aligner
+		export PYTHONPATH=""" + mfa_patches + """
 		mfa align ./corpus/ """ + dictionary + """ english ./output/ --clean
 		""")
 
