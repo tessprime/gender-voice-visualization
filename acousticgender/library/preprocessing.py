@@ -1,9 +1,37 @@
-import subprocess, os, glob, shutil, sys
+import subprocess, os, glob, shutil, sys, re
 import magic
 
 from . import settings as settings_module
 
 settings = settings_module.settings
+
+mfa_root = os.environ.get('MFA_ROOT_DIR', os.path.expanduser('~/Documents/MFA'))
+
+def write_dictionary(transcript, path):
+	"""Write the pronunciation dictionary entries for the transcript's words to
+	`path`, and return the dictionary argument to pass to `mfa align`.
+
+	Loading the full 200k-word dictionary is most of MFA's run time (~50 of
+	~60 seconds); a dictionary with only the words needed aligns identically.
+	Falls back to the full `english` dictionary if its file can't be found.
+	"""
+	full_dictionary = mfa_root + '/pretrained_models/dictionary/english.dict'
+	if not os.path.exists(full_dictionary):
+		return 'english'
+
+	# MFA splits words on hyphens and clitic apostrophes, so include the
+	# parts as well as the whole word, plus the clitic entries ('s, 'll, ...).
+	words = set()
+	for token in re.findall(r"[\w'-]+", transcript.lower()):
+		words.add(token)
+		words.update(part for part in re.split(r"['-]", token) if part)
+
+	with open(full_dictionary) as src, open(path, 'w') as dst:
+		for line in src:
+			word = line.split('\t', 1)[0]
+			if word in words or word.startswith("'"):
+				dst.write(line)
+	return path
 
 def process(uploaded_file, transcript, tmp_dir):
 	################## Noise Removal ##################
@@ -80,11 +108,13 @@ def process(uploaded_file, transcript, tmp_dir):
 	with open(corpus_dir + '/recording.txt', 'w') as f:
 		f.write(transcript)
 
+	dictionary = write_dictionary(transcript, tmp_dir + '/dictionary.dict')
+
 	with open(tmp_dir + '/align.sh', 'w') as f:
 		f.write("""#!/usr/bin/env bash
 		source /opt/conda/etc/profile.d/conda.sh
 		conda activate aligner
-		mfa align ./corpus/ english english ./output/ --clean
+		mfa align ./corpus/ """ + dictionary + """ english ./output/ --clean
 		""")
 
 	assert(os.path.exists(tmp_dir + '/align.sh'))
@@ -111,7 +141,6 @@ def process(uploaded_file, transcript, tmp_dir):
 	# MFA's working directory is shared by every run and wiped on the next one.
 	with open(tmp_dir + '/align.log', 'wb') as f:
 		f.write(align_output)
-	mfa_root = os.environ.get('MFA_ROOT_DIR', os.path.expanduser('~/Documents/MFA'))
 	for log in glob.glob(mfa_root + '/corpus/**/log/*.log', recursive=True):
 		dest = tmp_dir + '/mfa_logs/' + os.path.relpath(log, mfa_root + '/corpus')
 		os.makedirs(os.path.dirname(dest), exist_ok=True)
