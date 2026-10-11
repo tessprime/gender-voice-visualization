@@ -7,3 +7,5 @@ countries.mmdb
 rec/
 junk/
 .mypy_cache/
+ui/wasm/
+models/

@@ -114,26 +114,23 @@
 		let mediaRecorder = null;
 		let audioChunks = [];
 		let recordedAudio = null;
+		let recordingInterval = null;
 		function recordAudio() {
 			let stopButton = document.querySelector("#stop-recording");
 			let startButton = document.querySelector("#start-recording");
 
+			// The recorder's listeners are added once, when it's created:
+			// adding them here, on every start, duplicated each recording's
+			// audio once per earlier take.
 			const startRecording = () => {
 				$('#recording-count').innerHTML = '0';
-				let recordingInterval = setInterval(() => {
+				recordingInterval = setInterval(() => {
 					$('#recording-count').innerHTML = Number($('#recording-count').innerHTML) + 1;
 				}, 1000);
-
-				mediaRecorder.addEventListener("stop", () => {
-					clearInterval(recordingInterval);
-				});
 				stopButton.disabled = false;
 				startButton.disabled = true;
 				audioChunks = [];
 				mediaRecorder.start();
-				mediaRecorder.addEventListener("dataavailable", event => {
-					audioChunks.push(event.data);
-				});
 			}
 
 			function alertRecordingFailure(exception) {
@@ -158,8 +155,11 @@
 					navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
 						
 						mediaRecorder = new MediaRecorder(stream);
-						
+						mediaRecorder.addEventListener("dataavailable", event => {
+							audioChunks.push(event.data);
+						});
 						mediaRecorder.addEventListener("stop", () => {
+							clearInterval(recordingInterval);
 							stopButton.disabled = true;
 							startButton.disabled = false;
 							const audioBlob = new Blob(audioChunks);
@@ -219,10 +219,12 @@
 
 			$('button.new-clip').classList.add('hidden');
 			$('button.new-clip + .spinner').classList.remove('hidden');
-			
+			const loadingMessage = $('.loading-message');
+			const defaultMessage = loadingMessage.textContent;
+
 			hideModal();
-			
-			fetch('./backend.cgi', { method: 'POST', body: formData})
+
+			const analyzeOnServer = () => fetch('./backend.cgi', { method: 'POST', body: formData})
 			.then(response => {
 				if (!response.ok) throw new Error(response.status);
 				// Not every server sends Content-Length (Python's CGI server
@@ -230,7 +232,16 @@
 				return response.text();
 			}).then(text => {
 				return text.trim().length < 2 ? {} : JSON.parse(text);
+			});
+
+			// Analyse in the browser; if that isn't possible (e.g. the models
+			// aren't set up, or an old browser), on the server.
+			analyzeInBrowser(formData.get('recording'), transcriptText, text => { loadingMessage.textContent = text; })
+			.catch(error => {
+				console.warn('In-browser analysis failed, using the server:', error);
+				return analyzeOnServer();
 			}).then(data => {
+				loadingMessage.textContent = defaultMessage;
 				$('button.new-clip').classList.remove('hidden');
 				$('button.new-clip + .spinner').classList.add('hidden');
 
@@ -251,6 +262,7 @@
 					"For increased chance of success," +
 					"try using short clips with a 1-second period of silence."
 				);
+				loadingMessage.textContent = defaultMessage;
 				$('button.new-clip').classList.remove('hidden');
 				$('button.new-clip + .spinner').classList.add('hidden');
 			});

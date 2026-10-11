@@ -8,12 +8,17 @@ longer-term plan is in [ROADMAP.md](ROADMAP.md).
 voicealign (alignment) and voicemeasure (pitch, formants) run in
 WebAssembly. Still needed to replace the server:
 
-- [ ] 1. Audio input: decode and resample to 16 kHz mono in the page; fix
-      the recorder's duplicated-listener bug.
-- [ ] 2. Model files in the browser: `final.alimdl` (~50 MB), `tree`,
-      `lda.mat`, `phones.txt`, the dictionary (7 MB), `cmudict.txt`
-      (3.7 MB); cached, with download progress. Check the pretrained
-      model's license before redistributing it.
+- [x] 1. Audio input (`ui/analysis.js`): decoded to 16 kHz mono in the
+      page (`decodeAudioData` at 16 kHz, channels averaged). Recorder bug
+      fixed: listeners are added once, so later takes no longer upload
+      duplicated audio.
+- [x] 2. Model files: `tools/setup_browser_analysis.sh` builds both WASM
+      modules into `ui/wasm/` and extracts the model and dictionary from
+      the Docker image into `models/` (both git-ignored); `serve.py`
+      serves them plus `cmudict.txt` and `stats.json`. Loaded once per page
+      by the worker, with a progress message. *Still open:* the pretrained
+      model's license (it's redistributed to every visitor); HTTP caching
+      across visits; shrinking ~60 MB of downloads.
 - [x] **3. Scoring in JavaScript** (`ui/scoring.js`): a port of
       `phones.parse` and `resonance.compute_resonance`, from aligned words
       and phones with F0-F3 to the JSON the backend returns. Checked with
@@ -24,10 +29,29 @@ WebAssembly. Still needed to replace the server:
       the test clip; relative tolerance 1e-9). The check fails all 22 when
       a weight is changed from 0.268 to 0.27 or the outlier threshold from
       2 to 2.5, so it isn't vacuous.
-- [ ] 4. Wiring: run the pipeline in a Web Worker; replace the
-      `fetch('./backend.cgi')` in `ui/new-clip.html`.
-- [ ] 5. End-to-end check: the same recordings through the server and the
-      browser, compared on what the user sees.
+- [x] 4. Wiring: `ui/analysis-worker.js` (Web Worker) loads voicealign,
+      voicemeasure, the model and data files once, then per clip: align,
+      fill silences to rebuild the TextGrid tiers, measure F0-F3 at every
+      phone's midpoint, score with `scoring.js`. `new-clip.html` analyses in
+      the browser and falls back to `backend.cgi` if that fails (e.g.
+      models not set up). In Chromium: first clip 3.4 s (loading), then
+      **~0.4-0.6 s per clip**, with no server requests.
+- [x] 5. End-to-end check: 21 example clips + test clip through the page's
+      in-browser analysis vs the server's results (median pitch and
+      resonance per clip):
+
+      | | median resonance | median pitch |
+      |---|---|---|
+      | browser (raw audio) vs server | 1.1 pts (max 7.4) | 0.58 Hz (max 11.1) |
+      | browser on the server's noise-reduced audio vs server | 0.14 pts (max 2.1) | 0.20 Hz (max 5.5) |
+      | server vs itself (sox noise reduction is random) | 0.35 pts (max 1.4) | 0.00 Hz (max 4.2) |
+
+      So the browser pipeline reproduces the server as closely as the
+      server reproduces itself; the gap is the dropped noise reduction.
+      **Open decision:** `stats.json` was built from noise-reduced audio.
+      Options: reimplement noise reduction in the browser; use it only for
+      measuring (not aligning, where it caused failures); or keep it off
+      and accept the shift.
 
 ## Goal: voicealign, phonealign's forced alignment in Rust
 

@@ -12,8 +12,10 @@ import urllib.parse
 
 # Only these are served. The server's root is the whole checkout, which also
 # holds every uploaded recording (rec/), .git/, settings.json, etc.
-ALLOWED_FILES = {"/", "/index.html", "/manifest.json", "/sw.js", "/offline.html"}
-ALLOWED_DIRECTORIES = ("/ui/", "/resources/")
+ALLOWED_FILES = {"/", "/index.html", "/manifest.json", "/sw.js", "/offline.html",
+                 # Data the in-browser analysis (ui/analysis-worker.js) loads.
+                 "/cmudict.txt", "/stats.json"}
+ALLOWED_DIRECTORIES = ("/ui/", "/resources/", "/models/")
 
 # Recordings from the browser are well under 1 MB per minute.
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
