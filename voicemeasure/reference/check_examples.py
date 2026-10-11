@@ -2,16 +2,16 @@
 (resources/*.json), at the clips' phone midpoints, as the app measures.
 
 Run from the repository root, with the app's Docker image built (it has
-Praat and ffmpeg) and voicemeasure's example built:
+Praat and ffmpeg) and voicemeasure's examples built:
 
-    cargo build --release --manifest-path voicemeasure/Cargo.toml --example dump_tracks
+    cargo build --release --manifest-path voicemeasure/Cargo.toml --examples
     python3 voicemeasure/reference/check_examples.py OUT_DIR
 
 For each clip: decode its audio to a 16 kHz mono WAV, analyse that same file
-with Praat and with voicemeasure, and compare F1-F3 at each phone's
-midpoint. Also reports the difference from the values stored in the clip,
-which came from the 2021 pipeline (older Praat, noise-reduced audio), as
-context for how much that pipeline drifts anyway.
+with Praat (dump_tracks.praat) and with voicemeasure (measure_at), and
+compare F0-F3 at each phone's midpoint. Then run the app's resonance.py on
+both sets of measurements and compare what the app shows: per-vowel
+resonance, and each clip's median pitch and resonance.
 """
 import base64
 import bisect
@@ -24,7 +24,10 @@ import subprocess
 import sys
 
 sys.path.insert(0, '.')
+from acousticgender.library import resonance
 from acousticgender.library.phones import phone_class
+
+WEIGHTS = [0.7321428571428571, 0.26785714285714285, 0.0]
 
 out = os.path.abspath(sys.argv[1])
 os.makedirs(out, exist_ok=True)
@@ -49,59 +52,94 @@ script = ' && '.join(
 	for n in clips)
 subprocess.run(['docker', 'run', '--rm', '-v', f'{os.getcwd()}:/app', '-v', f'{out}:/out',
                 'gvv-dev', 'bash', '-c', script], check=True)
-for n in clips:
-	subprocess.run(['voicemeasure/target/release/examples/dump_tracks',
-	                f'{out}/{n}.wav', f'{out}/{n}-ours'], check=True)
 
 
 def read(path):
 	return list(csv.DictReader(open(path), delimiter='\t'))
 
 
-def value_at(frames, times, t, k):
-	"""Like Praat's Get value at time ... Hertz Linear."""
+def number(text):
+	return None if text.startswith('--') else float(text)
+
+
+def praat_value_at(rows, times, t, column):
+	"""Praat's Get value at time ... Hertz Linear: linear between the two
+	frames around t, or the nearer frame's value if one is undefined."""
 	i = bisect.bisect_right(times, t) - 1
 	if i < 0 or i + 1 >= len(times):
 		return None
-	a, b = frames[i][f'F{k}(Hz)'], frames[i + 1][f'F{k}(Hz)']
-	if '--' in a or '--' in b:
-		return None
+	a, b = number(rows[i][column]), number(rows[i + 1][column])
 	w = (t - times[i]) / (times[i + 1] - times[i])
-	return float(a) * (1 - w) + float(b) * w
+	if a is not None and b is not None:
+		return a + w * (b - a)
+	return a if w < 0.5 else b
 
 
-totals = {k: [] for k in (1, 2, 3)}
-stored_totals = {k: [] for k in (1, 2, 3)}
-print('%-10s %6s  %-26s %-26s %-26s  %s' % ('clip', 'vowels', 'F1 median/max (Hz)', 'F2 median/max', 'F3 median/max', 'F1-F3 vs stored 2021 values (median)'))
-for n, data in clips.items():
-	praat, ours = read(f'{out}/{n}-praat-formant.tsv'), read(f'{out}/{n}-ours-formant.tsv')
-	assert len(praat) == len(ours), n
-	praat_times = [float(r['time(s)']) for r in praat]
-	ours_times = [float(r['time(s)']) for r in ours]
-	phones = data['phones']
-	row, stored_row, vowels = [], [], 0
-	for k in (1, 2, 3):
-		differences, stored_differences = [], []
-		for this, following in zip(phones, phones[1:]):
-			if phone_class(this['phoneme']) != 'vowel' or this['time'] is None or following['time'] is None:
-				continue
-			middle = (this['time'] + following['time']) / 2
-			p, o = value_at(praat, praat_times, middle, k), value_at(ours, ours_times, middle, k)
-			if p is not None and o is not None:
-				differences.append(abs(p - o))
-			stored = this['F'][k] if this.get('F') and len(this['F']) > k else None
-			if stored is not None and o is not None:
-				stored_differences.append(abs(stored - o))
-		vowels = max(vowels, len(differences))
-		totals[k] += differences
-		stored_totals[k] += stored_differences
-		row.append('%6.2f / %7.1f' % (statistics.median(differences), max(differences)) if differences else '-')
-		stored_row.append('%5.0f' % statistics.median(stored_differences) if stored_differences else '-')
-	print('%-10s %6d  %-26s %-26s %-26s  %s' % (n, vowels, *row, ' '.join(stored_row)))
+def measurements(clip, name):
+	"""{'praat': [...], 'ours': [...]}: [F0, F1, F2, F3] per phone (except
+	the last, which has no end time)."""
+	phones = clip['phones']
+	middles = [(a['time'] + b['time']) / 2 for a, b in zip(phones, phones[1:])]
+	formant, pitch = read(f'{out}/{name}-praat-formant.tsv'), read(f'{out}/{name}-praat-pitch.tsv')
+	formant_times = [float(r['time(s)']) for r in formant]
+	pitch_times = [float(r['time(s)']) for r in pitch]
+	praat = [[praat_value_at(pitch, pitch_times, t, 'F0(Hz)')]
+	         + [praat_value_at(formant, formant_times, t, f'F{k}(Hz)') for k in (1, 2, 3)]
+	         for t in middles]
+	with open(f'{out}/{name}-times.txt', 'w') as f:
+		f.write('\n'.join(repr(t) for t in middles))
+	result = subprocess.run(['voicemeasure/target/release/examples/measure_at',
+	                         f'{out}/{name}.wav', f'{out}/{name}-times.txt'],
+	                        check=True, capture_output=True, text=True).stdout
+	ours = [[number(v) for v in line.split('\t')[1:]] for line in result.strip().split('\n')]
+	return {'praat': praat, 'ours': ours}
+
+
+def app_view(clip, values):
+	"""Run the app's resonance.py on one set of measurements."""
+	data = {'phones': [{'phoneme': p['phoneme'], 'expected': p.get('expected'), 'F': list(v)}
+	                   for p, v in zip(clip['phones'], values)]}
+	resonance.compute_resonance(data, WEIGHTS)
+	return data
+
+
+raw = {k: [] for k in range(4)}
+voicing = [0, 0]  # vowel midpoints where F0 voicing agrees, total
+clip_pitch, clip_resonance, vowel_resonance = [], [], []
+print('%-10s %-22s %-24s %s' % ('clip', 'median pitch P / V', 'median resonance P / V', 'vowel F0 |diff| median'))
+for name, clip in clips.items():
+	m = measurements(clip, name)
+	vowel_f0 = []
+	for phone, p, o in zip(clip['phones'], m['praat'], m['ours']):
+		if phone_class(phone['phoneme']) != 'vowel':
+			continue
+		voicing[0] += (p[0] is None) == (o[0] is None)
+		voicing[1] += 1
+		for k in range(4):
+			if p[k] is not None and o[k] is not None:
+				raw[k].append(abs(p[k] - o[k]))
+		if p[0] is not None and o[0] is not None:
+			vowel_f0.append(abs(p[0] - o[0]))
+	praat, ours = app_view(clip, m['praat']), app_view(clip, m['ours'])
+	clip_pitch.append(abs(praat['medianPitch'] - ours['medianPitch']))
+	clip_resonance.append(abs(praat['medianResonance'] - ours['medianResonance']) * 100)
+	vowel_resonance += [abs(a['resonance'] - b['resonance']) * 100
+	                    for a, b in zip(praat['phones'], ours['phones'])
+	                    if phone_class(a['phoneme']) == 'vowel'
+	                    and a.get('resonance') is not None and b.get('resonance') is not None]
+	print('%-10s %6.1f / %6.1f Hz      %5.1f%% / %5.1f%%          %.3f Hz' % (
+		name, praat['medianPitch'], ours['medianPitch'],
+		praat['medianResonance'] * 100, ours['medianResonance'] * 100,
+		statistics.median(vowel_f0) if vowel_f0 else float('nan')))
 
 print()
-for k in (1, 2, 3):
-	d = totals[k]
-	print(f'all clips F{k}: {len(d)} vowels, median {statistics.median(d):.2f} Hz, '
+print(f'vowel midpoints: voicing agrees at {voicing[0]}/{voicing[1]} ({100 * voicing[0] / voicing[1]:.1f}%)')
+for k, label in enumerate(['F0', 'F1', 'F2', 'F3']):
+	d = raw[k]
+	print(f'  {label}: {len(d)} vowels, |difference| median {statistics.median(d):.3f} Hz, '
 	      f'within 1 Hz {100 * sum(x < 1 for x in d) / len(d):.1f}%, within 10 Hz {100 * sum(x < 10 for x in d) / len(d):.1f}%, '
-	      f'max {max(d):.1f} Hz | vs stored 2021 values: median {statistics.median(stored_totals[k]):.0f} Hz')
+	      f'max {max(d):.1f} Hz')
+print(f'clip median pitch: |difference| median {statistics.median(clip_pitch):.3f} Hz, max {max(clip_pitch):.3f} Hz')
+print(f'clip median resonance: |difference| median {statistics.median(clip_resonance):.2f}, max {max(clip_resonance):.2f} percentage points')
+print(f'per-vowel resonance: {len(vowel_resonance)} vowels, |difference| median {statistics.median(vowel_resonance):.3f} pts, '
+      f'>1 pt: {sum(x > 1 for x in vowel_resonance)}, >5 pts: {sum(x > 5 for x in vowel_resonance)}, max {max(vowel_resonance):.1f} pts')

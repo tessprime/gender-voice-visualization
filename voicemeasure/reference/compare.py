@@ -44,5 +44,26 @@ def compare_formants(praat_path, ours_path):
 		      f'within 1 Hz in {100 * sum(d < 1 for d in differences) / len(differences):.1f}%')
 
 
+def compare_pitch(praat_path, ours_path):
+	praat, ours = read(praat_path), read(ours_path)
+	print(f'pitch frames: Praat {len(praat)}, voicemeasure {len(ours)}')
+	if len(praat) != len(ours):
+		return
+	pairs = [(value(a, 'F0(Hz)'), value(b, 'F0(Hz)')) for a, b in zip(praat, ours)]
+	both = [(p, o) for p, o in pairs if p is not None and o is not None]
+	only_praat = sum(p is not None and o is None for p, o in pairs)
+	only_ours = sum(p is None and o is not None for p, o in pairs)
+	print(f'  voicing agrees in {len(pairs) - only_praat - only_ours}/{len(pairs)} frames '
+	      f'({100 * (len(pairs) - only_praat - only_ours) / len(pairs):.1f}%); '
+	      f'voiced only in Praat: {only_praat}, only in voicemeasure: {only_ours}')
+	if both:
+		differences = [abs(p - o) for p, o in both]
+		octave = sum(abs(p / o - 2) < 0.1 or abs(o / p - 2) < 0.1 for p, o in both)
+		print(f'  F0 where both voiced ({len(both)} frames): |difference| median {statistics.median(differences):.3f} Hz, '
+		      f'95th percentile {percentile(differences, 95):.2f} Hz, max {max(differences):.1f} Hz; '
+		      f'within 1 Hz {100 * sum(d < 1 for d in differences) / len(differences):.1f}%; octave errors {octave}')
+
+
 if __name__ == '__main__':
 	compare_formants(sys.argv[1] + '-formant.tsv', sys.argv[2] + '-formant.tsv')
+	compare_pitch(sys.argv[1] + '-pitch.tsv', sys.argv[2] + '-pitch.tsv')

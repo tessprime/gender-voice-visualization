@@ -14,11 +14,20 @@ Meant to become its own crate; keep it independent of the web app.
 
 ## Status
 
-- **Formants** (`to_formant_burg`): done. On the test recording, at vowel
-  midpoints, F1-F3 are within a median of 0.05-0.18 Hz of Praat 6.4.06
-  (largest 4.5-10 Hz).
-- **Pitch** (`To Pitch`, autocorrelation): not yet.
-- **Values at a time** (`Get value at time ... Hertz Linear`): not yet.
+Compared with Praat 6.4.06 on the web app's 21 example clips, at their
+1475 vowel midpoints (`reference/check_examples.py`):
+
+- **Formants** (`to_formant_burg`): F1-F3 differ by a median 0.11 / 0.24 /
+  0.36 Hz. A few percent of frames contain very broad, numerically fragile
+  formants that one side places differently, renumbering those above.
+- **Pitch** (`to_pitch`): F0 differs by a median 0.018 Hz (99.6% within
+  1 Hz); voicing agrees at 98.7% of vowels. voicemeasure calls a few more
+  frames voiced at the edges of voiced stretches than Praat does.
+- **Values at a time** (`measure_at`, `pitch_at`, `formant_at`): as
+  `Get value at time ... Hertz Linear`.
+
+Undocumented details were settled by comparison with Praat; see
+`docs/CURRENT.md` in the web app's repository.
 
 ## Comparing with Praat
 
@@ -28,6 +37,10 @@ praat --run reference/dump_tracks.praat recording.wav out/praat
 # voicemeasure's frames:
 cargo run --release --example dump_tracks -- recording.wav out/ours
 python3 reference/compare.py out/praat out/ours
+
+# The example clips, end to end (from the web app's repository root):
+cargo build --release --manifest-path voicemeasure/Cargo.toml --examples
+python3 voicemeasure/reference/check_examples.py out/examples
 ```
 
 ## License

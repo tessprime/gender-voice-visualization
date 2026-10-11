@@ -7,6 +7,10 @@
 
 pub mod formant;
 pub mod frames;
+pub mod measure;
+pub mod pitch;
 pub mod resample;
 
 pub use formant::{to_formant_burg, Formant, FormantFrame, FormantSettings};
+pub use measure::{formant_at, measure_at, pitch_at, Measurement};
+pub use pitch::{to_pitch, PitchFrame, PitchSettings};

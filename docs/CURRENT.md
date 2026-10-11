@@ -62,12 +62,43 @@ the Docker image is the reference.
       vowels differ by more than 1 point, 3 by more than 5, and 1 (in
       `wina`) by 100 points (a renumbered vowel whose resonance is clamped
       to the opposite end).
-- [ ] **3. Pitch:** *Next.* `To Pitch: 0, 75, 600` (autocorrelation method,
-      Boersma 1993): candidates per frame, then a Viterbi path with
-      Praat's default costs.
-- [ ] **4. Measurements at phone midpoints**, linear interpolation as
-      `Get value at time ... Hertz Linear`; compare with Praat on the test
-      clip and the example clips, then on per-clip resonance and pitch.
+- [x] **3. Pitch:** `To Pitch: 0, 75, 600` (autocorrelation, Boersma
+      1993): per 40 ms frame, subtract the mean, Hanning window,
+      autocorrelation divided by the window's; candidates at its peaks
+      (parabolic interpolation) plus an unvoiced candidate; Viterbi path
+      with Praat's default costs. On the test clip (2634 frames): voicing
+      agrees in 99.1% of frames; where both are voiced, F0 differs by a
+      median 0.015 Hz (99.4% within 1 Hz), no octave errors.
+
+      Undocumented detail found by experiment: the **local peak** (frame
+      loudness, for the unvoiced candidate's strength) is measured **after
+      windowing**; measuring the raw frame gave 96.0% voicing agreement.
+
+      **Open: a small voicing bias.** The remaining disagreements are all
+      frames voiced only in voicemeasure (24 on the test clip; 79 of 7065
+      frames on the test clip + `all` + `wina`), at the edges of voiced
+      stretches. They're loud but weakly periodic: unvoiced strength 0.450
+      (its minimum), best voiced candidate ~0.50 (margin ~+0.05). Praat
+      must find ~0.05-0.1 lower periodicity there. Tried without effect:
+      sinc instead of parabolic peak interpolation, the paper's low-pass
+      from 95% of Nyquist, two other Hanning window definitions. Scaling the
+      local peak trades extra voiced frames for missing ones, so loudness
+      isn't the cause. Next ideas: how the autocorrelation is normalized or
+      zero-padded, and whether peak heights use r_x or r_a.
+- [x] **4. Measurements at phone midpoints.** `measure.rs`: `measure_at()`
+      returns F0 and F1-F3 at given times, replacing
+      textgrid-formants.praat. Between frames, values are linear; if one
+      frame has no value, the nearer frame's value is used (undocumented;
+      reproduces Praat's F0 at 266/266 test-clip phone midpoints, vs 261 and
+      256 for the other rules tried).
+
+      **On the 21 example clips** (`reference/check_examples.py`, 1475
+      vowels): F0 median |difference| 0.018 Hz (99.6% within 1 Hz), voicing
+      agrees at 98.7% of vowel midpoints; F1-F3 as above. What the app
+      shows: clip median pitch differs by a median 0.28 Hz (max 5.0 Hz,
+      `all` 141.7 vs 136.6, `wina` 209.3 vs 213.9; the median includes
+      consonants, so the voicing-edge bias moves it); clip median resonance
+      by a median 0.18 points (max 1.6).
 
 ## Goal: harden `serve.py` for a small real deployment
 

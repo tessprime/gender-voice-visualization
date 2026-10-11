@@ -3,10 +3,10 @@
 //!
 //!     cargo run --release --example dump_tracks -- recording.wav out/recording
 //!
-//! writes out/recording-formant.tsv.
+//! writes out/recording-formant.tsv and out/recording-pitch.tsv.
 
 use std::io::Write;
-use voicemeasure::{to_formant_burg, FormantSettings};
+use voicemeasure::{to_formant_burg, to_pitch, FormantSettings, PitchSettings};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -43,5 +43,17 @@ fn main() {
             }
         }
         writeln!(out).unwrap();
+    }
+
+    let pitch = to_pitch(&samples, spec.sample_rate as f64, &PitchSettings::default());
+    let mut out = std::io::BufWriter::new(
+        std::fs::File::create(format!("{}-pitch.tsv", args[2])).expect("can't write output"),
+    );
+    writeln!(out, "frame\ttime(s)\tF0(Hz)").unwrap();
+    for (i, frame) in pitch.iter().enumerate() {
+        match frame.frequency {
+            Some(f) => writeln!(out, "{}\t{:.6}\t{:.3}", i + 1, frame.time, f).unwrap(),
+            None => writeln!(out, "{}\t{:.6}\t--undefined--", i + 1, frame.time).unwrap(),
+        }
     }
 }
