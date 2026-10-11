@@ -197,6 +197,150 @@ the user choose to send the failed recording as a bug report.
       delete after 30 days, or once the bug is fixed).
 - [ ] Decide who can access reports, and say so in the consent text.
 
+## 5. Live spectrogram and pitch while recording
+
+Show a scrolling spectrogram and a live pitch trace while the user records,
+so they can see their voice as they speak instead of only after the clip
+is analysed.
+
+### What we have
+
+- The recorder already has a `MediaStream` from `getUserMedia` (in
+  `ui/new-clip.html`).
+- voicemeasure has Praat's pitch algorithm (`To Pitch`, 75-600 Hz) in
+  WASM; `vm_measure` measures a whole recording at given times, not a
+  stream.
+- Item 1 plans a spectrogram for finished clips; the rendering (color map,
+  frequency axis, themes) should be shared.
+
+### Work
+
+- [ ] Tap the microphone stream with an `AudioWorklet` (or `AnalyserNode`
+      for the spectrogram alone) without disturbing `MediaRecorder`.
+- [ ] Scrolling spectrogram on a canvas: ~25 ms window, ~10 ms hop,
+      0-5 kHz, drawn as columns arrive.
+- [ ] Live pitch: either a streaming entry point in voicemeasure (pitch
+      for a short buffer, e.g. the last ~100 ms) or a lightweight tracker
+      (autocorrelation/YIN) for the live view. If it isn't Praat's
+      algorithm, label it as approximate, since the clip's final numbers
+      come from voicemeasure. Measure how far the two differ.
+- [ ] Draw the pitch trace over the spectrogram and/or as a moving marker
+      on the voice graph's pitch axis.
+- [ ] Optionally live resonance: formants need longer windows and are noisy
+      outside vowels, and scoring needs the phone (from alignment), so a
+      live estimate would be rough. Decide whether it's worth showing.
+- [ ] Performance: keep it under one frame per update on phones; run
+      analysis off the main thread.
+
+## 6. Play back a constellation's vowels
+
+Clicking a vowel dot in a clip's constellation plays every instance of that
+vowel from the recording, so people can hear how much it varies.
+
+- [x] `vowelGroups()` keeps each instance's word and the word's span (to
+      where the next word or silence starts; the last to the end of the
+      audio).
+- [x] Click a vowel dot: the word of each instance plays in the order they
+      were spoken (a lone vowel is often too short to hear), with 30 ms
+      either side, 15 ms fades and 350 ms between words, through Web Audio
+      (decoded once per clip). The instance playing is highlighted and
+      labelled with its word. Click again to stop; starting the player
+      stops it too.
+- [x] The constellation stays open while a vowel plays.
+- [x] The details panel's transcript highlights the word being heard,
+      during vowel playback and normal playback (`spokenWord` state;
+      `transcriptPieces()` in `ui/util.js` matches transcript words to
+      aligned ones, including the aligner's `<unk>`).
+- [ ] Click a single instance to play just that one (instances ignore the
+      pointer today).
+- [ ] Maybe an option to hear just the vowel instead of the word.
+- [ ] Move the clip's marker to the instance playing, as normal playback
+      does, or show its word.
+- [ ] Touch screens: there's no hover to open the constellation (see Other
+      open items).
+
+## 7. Automatic transcription
+
+Fill in the transcript from the recording with the browser's speech
+recognition (Web Speech API, `SpeechRecognition`), so users can speak
+freely instead of reading a fixed passage, then check and correct the text
+before analysis.
+
+### What we have
+
+- The transcript is a textarea in `ui/new-clip.html`, filled from the
+  chosen passage or typed for "custom"; it's passed to `analyzeInBrowser`.
+- voicealign aligns any transcript. Words missing from the dictionary
+  become `<unk>` (spoken noise, `spn`), so they get no vowels and aren't
+  measured.
+
+### Work
+
+- [ ] **Privacy first.** In Chrome, recognition normally sends the audio to
+      Google's servers; Chrome 139+ can run it on the device
+      (`processLocally`, after the language pack downloads)
+      **(verify)**. Safari's goes to Apple **(verify)**. Firefox has no
+      `SpeechRecognition` **(verify)**. Always prefer on-device.
+- [ ] **Consent for server recognition.** If on-device isn't possible, the
+      first press of "Auto-transcribe" asks first: the recording is sent to
+      the browser maker's speech service (name it: Google or Apple), which
+      this app doesn't control, and everything else stays on the device.
+      Choices: "Send it", "Not now", and a "Remember my choice" checkbox.
+      - Store the choice (`transcriptionConsent`: unset / allowed / denied)
+        in `localStorage`, wrapped in try/catch so a blocked storage just
+        means asking again.
+      - A control in the settings tab shows the current choice and lets the
+        user change or reset it.
+      - With "denied" remembered, the button stays visible but explains why
+        it's off and links to the setting, rather than vanishing.
+      - Option 2 (recognising during recording) needs this consent before
+        the recording starts, not after.
+      - This is the app's first stored data (today nothing persists, and
+        the help page says so); mention it on the help page.
+- [ ] **"Auto-transcribe" button after recording.** Once a recording
+      exists (recorded or uploaded), a button next to the transcript fills
+      it in from the audio; the user then reviews it. The catch: the API
+      listens to a live microphone, not a recorded blob. Ways to get there,
+      best first:
+      1. Pass the recording as a track: play it into a
+         `MediaStreamAudioDestinationNode` and give that track to
+         `recognition.start(track)` (newer Chrome **(verify)** which
+         version, and whether it runs faster than real time). Works for
+         uploads too.
+      2. Recognise silently during recording, on the same stream as
+         `MediaRecorder`, and keep the result; the button then fills it in
+         instantly. Only for live recordings; costs the privacy prompt even
+         if the user never presses the button, so start it only if they've
+         opted in.
+      Hide the button when neither works.
+- [ ] **Feature detection**, decided once per page load:
+      - Recognition at all: `window.SpeechRecognition ||
+        window.webkitSpeechRecognition`.
+      - On-device: `SpeechRecognition.available({langs: ['en-US'],
+        processLocally: true})` → available / downloadable / unavailable,
+        and `SpeechRecognition.install(...)` for "downloadable"
+        **(verify)** the exact API.
+      - Track input (option 1) can't be detected from a property, and an
+        older browser silently ignores the extra argument to `start()` and
+        listens to the **microphone** instead. So don't just try it: gate
+        it on a related newer feature, or run a short probe with a silent
+        track and check that recognition ended without a microphone
+        prompt **(verify)** a reliable test.
+      - Pick option 1, then option 2, then hide the button; put the result
+        in one `transcriptionSupport` value the UI reads, and test each
+        branch (including "unsupported") in the browser test setup.
+- [ ] **Review step.** Show the recognised text for editing before
+      analysis; recognition errors become alignment errors.
+- [ ] **Normalise the text** for the dictionary: numbers ("25" → "twenty
+      five"), symbols and punctuation. Highlight words that aren't in the
+      dictionary so the user can fix or respell them.
+- [ ] **Unknown words.** Freeform speech hits names and slang the
+      dictionary lacks. Options: let the user respell, or add
+      grapheme-to-phoneme conversion (MFA has G2P models; another WASM
+      port) **(verify)** size and license.
+- [ ] Ties in with item 2's note on freeform speech, and with item 5 (both
+      tap the live microphone stream).
+
 ## Other open items
 
 From earlier work, roughly by priority:
@@ -226,3 +370,6 @@ From earlier work, roughly by priority:
       pre-creating every output file avoids it, and check whether a current
       Praat release still has it. Low priority, since we're replacing Praat.
 - [ ] Constellation on touch screens (no hover).
+- [ ] The help page says clips are "sent to our server for processing";
+      with in-browser analysis (and always on the static build) they
+      never leave the device. Update the text.

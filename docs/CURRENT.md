@@ -53,6 +53,39 @@ WebAssembly. Still needed to replace the server:
       measuring (not aligning, where it caused failures); or keep it off
       and accept the shift.
 
+## Goal: hear a vowel's variation from the constellation
+
+- [x] Clicking a constellation vowel dot plays the word of each instance
+      in order, highlighting and labelling the one playing (`playVowel()`
+      in `ui/voice-graph.js`; ROADMAP item 6). First version played only
+      the vowel; switched to whole words, since vowels are often too short
+      to hear. Checked in headless Chromium on Morgan's AE: "actually",
+      "fabric", "answer", "hadn't", in time order.
+- [x] Browser tests for it in `tests/browser/test_constellation.py`.
+- [x] The transcript in the details panel highlights the word being heard,
+      from the player and from vowel playback (`tests/browser/
+      test_transcript.py`). Transcript words are matched to aligned words
+      by spelling (longest common subsequence); on all 21 examples every
+      transcript word matched, and `<unk>` maps to the words it replaced
+      (Aiden's "Kings—nor") or to none (noises in Jenn, Steve).
+- [x] The transcript is now inserted as text, not HTML (it was
+      `innerHTML`, so an imported clip's transcript could inject markup).
+      The title and other details fields still use `innerHTML`.
+- [ ] Not yet listened to in a real browser.
+
+## Goal: browser tests
+
+- [x] `tests/browser/` (pytest + Playwright): serves `dist/` like GitHub
+      Pages (or `GVV_URL`), engines from `GVV_BROWSERS`. Covers page load
+      and examples, in-browser analysis of the Fern example against its
+      stored analysis, a mismatched transcript's error, the recorder's
+      takes, and the constellation. 11 pass in Chromium (~30 s).
+- [ ] Not in CI; Firefox/WebKit not tried; recorder-bug test not yet
+      shown to fail on the old code.
+- Surprise: the browser picked a different pronunciation for one word
+  ("dog", AA1 vs the stored AO1), and the stored Fern example has 6 of 28
+  vowels unmeasured, so the comparisons allow small differences.
+
 ## Goal: a static-only build
 
 - [x] `tools/build_static.py` writes `dist/` (54 files, ~133 MB): the page
@@ -71,9 +104,13 @@ WebAssembly. Still needed to replace the server:
       publishes `dist/` on push to `master`. The model and dictionary now
       come from MFA's GitHub releases (`tools/fetch_models.sh`), byte-for-byte
       the same files as in the Docker image, so setup no longer needs Docker.
-- [ ] GitHub side (user): rename the fork to `gvv` (site at
-      `tessprime.github.io/gvv/`), set Settings → Pages → Source to "GitHub
-      Actions", push `master`. Not yet run on GitHub.
+- [x] Live at `tessprime.github.io/gender-voice-visualization/`, deployed
+      from the fork's `master` (local `tessmaster`). Surprise: the first
+      deploy failed with a 404 because Pages was still on "Deploy from a
+      branch", which also served the committed server-backed `index.html`
+      (falling back to `backend.cgi` → 405, models 404). Fixed by setting
+      Source to "GitHub Actions" and re-running.
+- [ ] Rename the fork to `gvv` (site moves to `tessprime.github.io/gvv/`).
 - [ ] Decide noise reduction (see above), then consider retiring the
       server path (`serve.py` analysis, `backend.cgi`, the 3.5 GB image).
 
