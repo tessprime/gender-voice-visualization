@@ -1,17 +1,67 @@
-
-print('preprocessing.py: dir() -> ', dir())
-print('preprocessing.py: __name__ -> ', __name__)
-import subprocess, os, glob, shutil
+import subprocess, os, glob, shutil, sys, re, time
 import magic
 
 from . import settings as settings_module
 
 settings = settings_module.settings
 
-def process(uploaded_file, transcript, tmp_dir):
+mfa_root = os.environ.get('MFA_ROOT_DIR', os.path.expanduser('~/Documents/MFA'))
+
+class ProcessingError(Exception):
+	"""An expected failure caused by the recording itself (as opposed to a
+	bug); the message is meant for the user."""
+
+# See mfa_patches/sitecustomize.py.
+mfa_patches = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mfa_patches')
+
+def write_dictionary(transcript, path):
+	"""Write the pronunciation dictionary entries for the transcript's words to
+	`path`, and return the dictionary argument to pass to `mfa align`.
+
+	Loading the full 200k-word dictionary is most of MFA's run time (~50 of
+	~60 seconds); a dictionary with only the words needed aligns identically.
+	Falls back to the full `english` dictionary if its file can't be found.
+	"""
+	full_dictionary = mfa_root + '/pretrained_models/dictionary/english.dict'
+	if not os.path.exists(full_dictionary):
+		return 'english'
+
+	# MFA splits words on hyphens and clitic apostrophes, so include the
+	# parts as well as the whole word, plus the clitic entries ('s, 'll, ...).
+	words = set()
+	for token in re.findall(r"[\w'-]+", transcript.lower()):
+		words.add(token)
+		words.update(part for part in re.split(r"['-]", token) if part)
+
+	with open(full_dictionary) as src, open(path, 'w') as dst:
+		for line in src:
+			word = line.split('\t', 1)[0]
+			if word in words or word.startswith("'"):
+				dst.write(line)
+	return path
+
+def process(uploaded_file, transcript, tmp_dir, aligner=None, keep_files=False):
+	"""Clean up and align the recording, then measure each phone with Praat.
+
+	Aligns with `aligner` (a loaded phonealign.Aligner) if given, otherwise
+	by running `mfa align`. Returns Praat's output, or None if alignment
+	failed.
+
+	tmp_dir is created, and always deleted afterwards (whether processing
+	succeeded, failed or raised), since it holds the user's recording and
+	transcript. It's kept only with `keep_files` or the `keep_recordings`
+	setting.
+	"""
+	os.mkdir(tmp_dir)
+	try:
+		return _process(uploaded_file, transcript, tmp_dir, aligner)
+	finally:
+		if not (keep_files or settings.get('keep_recordings')):
+			shutil.rmtree(tmp_dir, ignore_errors=True)
+
+def _process(uploaded_file, transcript, tmp_dir, aligner):
 	################## Noise Removal ##################
 
-	os.mkdir(tmp_dir)
 	filetype = magic.from_buffer(uploaded_file)
 
 	input_file    = tmp_dir + '/orig'
@@ -60,7 +110,7 @@ def process(uploaded_file, transcript, tmp_dir):
 		])
 
 		assert(os.path.exists(clean_file))
-	except e:
+	except Exception:
 		clean_file = input_file
 
 	################## Forced Alignment ##################
@@ -69,25 +119,69 @@ def process(uploaded_file, transcript, tmp_dir):
 	os.mkdir(corpus_dir)
 	os.mkdir(output_dir)
 
-	subprocess.check_output([
-		'ffmpeg' , 
-		'-i'     , clean_file,
-		'-acodec', 'pcm_s16le',
-		'-ac'    , '1',
-		'-ar'    , '16000',
-		corpus_dir + '/recording.wav'
-	])
+	try:
+		subprocess.check_output([
+			'ffmpeg' ,
+			'-i'     , clean_file,
+			'-acodec', 'pcm_s16le',
+			'-ac'    , '1',
+			'-ar'    , '16000',
+			corpus_dir + '/recording.wav'
+		])
+	except subprocess.CalledProcessError:
+		raise ProcessingError("The upload couldn't be read as audio.")
 
 	subprocess.run(['chmod', '777', '-R', tmp_dir])
 
 	with open(corpus_dir + '/recording.txt', 'w') as f:
 		f.write(transcript)
 
+	if aligner is not None:
+		align_with_phonealign(aligner, corpus_dir, output_dir, transcript, tmp_dir)
+	else:
+		align_with_mfa(transcript, tmp_dir)
+
+	################## Phonetic Processing ##################
+	for recording, grid in zip(
+		glob.glob(corpus_dir + '/*.wav'),
+		glob.glob(output_dir + '/*.TextGrid')
+	):
+		praat_output = subprocess.check_output([
+			'./textgrid-formants.praat', recording, grid
+		]).decode('utf-8')
+
+		with open(grid.replace('.TextGrid', '.tsv'), 'w') as f:
+			f.write(praat_output)
+
+		return praat_output
+
+def align_with_phonealign(aligner, corpus_dir, output_dir, transcript, tmp_dir):
+	"""Write output/recording.TextGrid using an already-loaded aligner. On
+	failure, write no TextGrid (as when `mfa align` fails)."""
+	import soundfile
+	start = time.perf_counter()
+	try:
+		samples, rate = soundfile.read(corpus_dir + '/recording.wav', dtype='float32')
+		alignment = aligner.align(samples, rate, transcript)
+		alignment.write_textgrid(output_dir + '/recording.TextGrid')
+		log = 'phonealign: aligned %d words, %d phones in %.0f ms\n' % (
+			len(alignment.words), len(alignment.phones), (time.perf_counter() - start) * 1000)
+	except Exception as e:
+		log = 'phonealign: alignment failed: %r\n' % e
+		print(log, end='', file=sys.stderr)
+	with open(tmp_dir + '/align.log', 'w') as f:
+		f.write(log)
+
+def align_with_mfa(transcript, tmp_dir):
+	"""Write output/recording.TextGrid by running `mfa align` in tmp_dir."""
+	dictionary = write_dictionary(transcript, tmp_dir + '/dictionary.dict')
+
 	with open(tmp_dir + '/align.sh', 'w') as f:
 		f.write("""#!/usr/bin/env bash
 		source /opt/conda/etc/profile.d/conda.sh
 		conda activate aligner
-		mfa align ./corpus/ english english ./output/ --clean
+		export PYTHONPATH=""" + mfa_patches + """
+		mfa align ./corpus/ """ + dictionary + """ english ./output/ --clean
 		""")
 
 	assert(os.path.exists(tmp_dir + '/align.sh'))
@@ -98,29 +192,23 @@ def process(uploaded_file, transcript, tmp_dir):
 
 	try:
 		# shell out so we can `source`
-		subprocess.check_output(['./align.sh'], stderr=subprocess.STDOUT) 
+		align_output = subprocess.check_output(['./align.sh'], stderr=subprocess.STDOUT) 
 	except subprocess.CalledProcessError as e:
-		print("CalledProcessError")
-		print(e)
-		print(str(e.output, 'utf-8'))
+		align_output = e.output
+		# stdout is the HTTP response; diagnostics go to stderr (the server log).
+		print(e, file=sys.stderr)
+		print(str(e.output, 'utf-8'), file=sys.stderr)
 	except Exception as e:
-		print("Error")
-		print(e)
+		align_output = str(e).encode('utf-8')
+		print("Error running align.sh:", e, file=sys.stderr)
 	
 	os.chdir(cwd)
 
-
-	################## Phonetic Processing ##################
-	for recording, grid in zip(
-		glob.glob(corpus_dir + '/*.wav'), 
-		glob.glob(output_dir + '/*.TextGrid')
-	):
-		praat_output = subprocess.check_output([
-			'./textgrid-formants.praat', recording, grid
-		]).decode('utf-8')
-
-		with open(grid.replace('.TextGrid', '.tsv'), 'w') as f:
-			f.write(praat_output)
-
-		shutil.rmtree(tmp_dir)
-		return praat_output
+	# Keep the aligner's console output and MFA's own logs next to the clip.
+	# MFA's working directory is shared by every run and wiped on the next one.
+	with open(tmp_dir + '/align.log', 'wb') as f:
+		f.write(align_output)
+	for log in glob.glob(mfa_root + '/corpus/**/log/*.log', recursive=True):
+		dest = tmp_dir + '/mfa_logs/' + os.path.relpath(log, mfa_root + '/corpus')
+		os.makedirs(os.path.dirname(dest), exist_ok=True)
+		shutil.copy(log, dest)

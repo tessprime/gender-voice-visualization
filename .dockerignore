@@ -1,0 +1,2 @@
+# The source is bind-mounted at runtime, so nothing needs to go into the build context.
+*

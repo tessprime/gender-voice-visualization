@@ -4,3 +4,9 @@ corpus-processed
 settings.json
 countries.mmdb
 .directory
+rec/
+junk/
+.mypy_cache/
+ui/wasm/
+models/
+dist/

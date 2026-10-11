@@ -72,8 +72,6 @@ let brightIcon = String(`
    inkscape:version="0.92.4 (5da689c313, 2019-01-14)"
    sodipodi:docname="bright.svg">
   <defs id="defs4559">
-	<link href="style.css" type="text/css" rel="stylesheet" 
-          xmlns="http://www.w3.org/1999/xhtml"/>
   </defs>
   <sodipodi:namedview
      id="base"

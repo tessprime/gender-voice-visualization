@@ -7,6 +7,7 @@ from collections import defaultdict
 from statistics import mean, median, stdev
 
 from library import preprocessing, phones, resonance
+from library.analysis import load_aligner
 
 corpus_dir = './corpus'
 processed_corpus_dir = './corpus-processed'
@@ -15,6 +16,13 @@ if not os.path.exists(processed_corpus_dir):
 	os.mkdir(processed_corpus_dir)
 
 	subprocess.run(['chmod', '777', '-R', processed_corpus_dir])
+
+	# Align with phonealign if it's available (much faster), else `mfa align`.
+	try:
+		aligner = load_aligner()
+	except Exception as e:
+		print('phonealign unavailable, using mfa align:', e)
+		aligner = None
 
 	for directory in os.listdir(corpus_dir):
 		transcript = ''
@@ -31,11 +39,9 @@ if not os.path.exists(processed_corpus_dir):
 				with open(corpus_dir + '/' + directory + '/' + filename, 'rb') as f:
 					recording = f.read()
 
+		# process() creates out_dir; the files are read back below.
 		out_dir = processed_corpus_dir + '/' + directory
-		if not os.path.exists(out_dir): os.mkdir(out_dir)
-		subprocess.run(['chmod', '777', '-R', out_dir])
-
-		preprocessing.process(recording, transcript, out_dir)
+		preprocessing.process(recording, transcript, out_dir, aligner, keep_files=True)
 				
 m_count = 0
 f_count = 0
@@ -77,8 +83,13 @@ for data in m_data + f_data:
 phone_stats = {}
 
 for phoneme in population_phones:
+	if len(population_phones[phoneme]) < 2:
+		# stdev needs two values; such a phoneme gets no stats, so
+		# resonance.py skips it (as for any phoneme missing from stats.json).
+		print(phoneme, 'skipped: fewer than two complete measurements')
+		continue
 	print(phoneme)
-	Fs = [[phone['F'][i] for phone in population_phones[phoneme] ]
+	Fs =[[phone['F'][i] for phone in population_phones[phoneme] ]
 	       for i in range(4)]
 	for i in range(4):
 		print('\tf' + str(i), mean(Fs[i]), stdev(Fs[i]))

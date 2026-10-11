@@ -501,6 +501,75 @@ the same rights to the users of any resulting works.
             	border: 2px solid yellow;
             }
 
+            /* Vowel constellation: see openConstellation() in voice-graph.js. */
+            voice-graph-2d > .overlay.constellation-open > .marker:not(.constellation-origin) {
+            	opacity: .3;
+            }
+            voice-graph-2d > .overlay > .marker.constellation-origin {
+            	z-index: calc(var(--voice-graph-z-index) + 5);
+            }
+            .constellation {
+            	position: absolute;
+            	top: 0px;
+            	left: 0px;
+            	z-index: calc(var(--voice-graph-z-index) + 3);
+            	transition: opacity .25s;
+            }
+            .constellation.closing {
+            	opacity: 0;
+            	pointer-events: none;
+            }
+            .constellation > .vowel-dot,
+            .constellation > .vowel-instance {
+            	position: absolute;
+            	border-radius: 50%;
+            	background: var(--clip-color);
+            	transition: transform .25s ease-out, opacity .25s;
+            }
+            .constellation > .vowel-dot {
+            	height: 1em;
+            	width: 1em;
+            	top: -.5em;
+            	left: -.5em;
+            	border: .1em solid white;
+            	box-sizing: border-box;
+            	z-index: 2;
+            }
+            .constellation > .vowel-dot:hover {
+            	border-color: yellow;
+            	z-index: 3;
+            }
+            /* Labels overlap where vowels cluster; make the hovered one readable. */
+            .constellation > .vowel-dot:hover > .vowel-label {
+            	font-weight: bold;
+            	background: rgba(0,0,0,.75);
+            	padding: 0px .3em;
+            	border-radius: 3px;
+            }
+            .constellation > .vowel-dot > .vowel-label {
+            	position: absolute;
+            	bottom: 1.1em;
+            	left: 50%;
+            	transform: translateX(-50%);
+            	white-space: nowrap;
+            	font-size: small;
+            	color: white;
+            	pointer-events: none;
+            	text-shadow: rgba(0,0,0,.6) 1px 1px, rgba(0,0,0,.6) -1px -1px, rgba(0,0,0,.6) 1px -1px, rgba(0,0,0,.6) -1px 1px;
+            }
+            .constellation > .vowel-instance {
+            	height: .5em;
+            	width: .5em;
+            	top: -.25em;
+            	left: -.25em;
+            	opacity: 0;
+            	pointer-events: none;
+            	z-index: 1;
+            }
+            .constellation > .vowel-instance.shown {
+            	opacity: .7;
+            }
+
             voice-graph-2d > .overlay > .x.hairline {
             	content: '';
             	border-left: .1em dotted black;
@@ -749,8 +818,6 @@ let brightIcon = String(`
    inkscape:version="0.92.4 (5da689c313, 2019-01-14)"
    sodipodi:docname="bright.svg">
   <defs id="defs4559">
-	<link href="style.css" type="text/css" rel="stylesheet" 
-          xmlns="http://www.w3.org/1999/xhtml"/>
   </defs>
   <sodipodi:namedview
      id="base"
@@ -828,6 +895,10 @@ let brightIcon = String(`
   </g>
 </svg>
 `)
+			// Whether backend.cgi can analyse recordings if the in-browser
+			// analysis fails: true when served by serve.py / backend.cgi,
+			// false for the static build (tools/build_static.py).
+			const serverAnalysisAvailable = true;
 		</script>
 		
 			<script src="./ui/dom.js"></script>
@@ -835,6 +906,7 @@ let brightIcon = String(`
 			<script src="./ui/clip.js"></script>
 			<script src="./ui/examples.js"></script>
 			<script src="./ui/util.js"></script>
+			<script src="./ui/analysis.js"></script>
 		
 	</head>
 	<body class="narrow-body custom-widgets">
@@ -1899,6 +1971,20 @@ to help us in our research.
             	and uses Creative-Commons-licensed sound files from
             	Morgan and Christine Lemmer-Webber's podcast <a href="https://fossandcrafts.org">Foss and Crafts</a>
             	as well as public domain content audiobook content from <a href="librivox.org">Librivox</a>.</p>
+            	<p>Recordings are analysed in your browser using:</p>
+            	<ul>
+            		<li>the <a href="https://mfa-models.readthedocs.io/en/latest/acoustic/English/English%20(US)%20ARPA%20acoustic%20model%20v3_0_0.html">English (US) ARPA acoustic model v3.0.0</a>
+            		and the <a href="https://mfa-models.readthedocs.io/en/latest/dictionary/English/index.html">English (US) ARPA pronunciation dictionary</a>
+            		of the <a href="https://montreal-forced-aligner.readthedocs.io/">Montreal Forced Aligner</a>,
+            		by Michael McAuliffe and Morgan Sonderegger, used unmodified under
+            		<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>;</li>
+            		<li>the <a href="https://github.com/cmusphinx/cmudict">CMU Pronouncing Dictionary</a>,
+            		copyright &copy; 1993&ndash;2015 Carnegie Mellon University, under a BSD-style license
+            		(its full notice is at the top of <a href="./cmudict.txt">cmudict.txt</a>);</li>
+            		<li>forced alignment ported from <a href="https://kaldi-asr.org/">Kaldi</a> (Apache 2.0), and pitch and formant analysis
+            		following <a href="https://www.fon.hum.uva.nl/praat/">Praat</a>'s documented algorithms
+            		(Boersma 1993).</li>
+            	</ul>
             </section>
             				
             <!-- Details -->
@@ -2301,26 +2387,23 @@ to help us in our research.
             		let mediaRecorder = null;
             		let audioChunks = [];
             		let recordedAudio = null;
+            		let recordingInterval = null;
             		function recordAudio() {
             			let stopButton = document.querySelector("#stop-recording");
             			let startButton = document.querySelector("#start-recording");
 
+            			// The recorder's listeners are added once, when it's created:
+            			// adding them here, on every start, duplicated each recording's
+            			// audio once per earlier take.
             			const startRecording = () => {
             				$('#recording-count').innerHTML = '0';
-            				let recordingInterval = setInterval(() => {
+            				recordingInterval = setInterval(() => {
             					$('#recording-count').innerHTML = Number($('#recording-count').innerHTML) + 1;
             				}, 1000);
-
-            				mediaRecorder.addEventListener("stop", () => {
-            					clearInterval(recordingInterval);
-            				});
             				stopButton.disabled = false;
             				startButton.disabled = true;
             				audioChunks = [];
             				mediaRecorder.start();
-            				mediaRecorder.addEventListener("dataavailable", event => {
-            					audioChunks.push(event.data);
-            				});
             			}
 
             			function alertRecordingFailure(exception) {
@@ -2345,8 +2428,11 @@ to help us in our research.
             					navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
             						
             						mediaRecorder = new MediaRecorder(stream);
-            						
+            						mediaRecorder.addEventListener("dataavailable", event => {
+            							audioChunks.push(event.data);
+            						});
             						mediaRecorder.addEventListener("stop", () => {
+            							clearInterval(recordingInterval);
             							stopButton.disabled = true;
             							startButton.disabled = false;
             							const audioBlob = new Blob(audioChunks);
@@ -2406,15 +2492,30 @@ to help us in our research.
 
             			$('button.new-clip').classList.add('hidden');
             			$('button.new-clip + .spinner').classList.remove('hidden');
-            			
+            			const loadingMessage = $('.loading-message');
+            			const defaultMessage = loadingMessage.textContent;
+
             			hideModal();
-            			
-            			fetch('./backend.cgi', { method: 'POST', body: formData})
+
+            			const analyzeOnServer = () => fetch('./backend.cgi', { method: 'POST', body: formData})
             			.then(response => {
             				if (!response.ok) throw new Error(response.status);
-            				if (response.headers.get('Content-Length') < 2) return {};
-            				return response.json();
+            				// Not every server sends Content-Length (Python's CGI server
+            				// doesn't), so check the body itself.
+            				return response.text();
+            			}).then(text => {
+            				return text.trim().length < 2 ? {} : JSON.parse(text);
+            			});
+
+            			// Analyse in the browser; if that fails and there's a server that
+            			// can do it (not in the static build), on the server.
+            			analyzeInBrowser(formData.get('recording'), transcriptText, text => { loadingMessage.textContent = text; })
+            			.catch(error => {
+            				if (!serverAnalysisAvailable) throw error;
+            				console.warn('In-browser analysis failed, using the server:', error);
+            				return analyzeOnServer();
             			}).then(data => {
+            				loadingMessage.textContent = defaultMessage;
             				$('button.new-clip').classList.remove('hidden');
             				$('button.new-clip + .spinner').classList.add('hidden');
 
@@ -2426,14 +2527,17 @@ to help us in our research.
             				globalState.set('playingClip', clip);
             				globalState.set('previewClip', clip);
 
-            			}).catch(() => {
+            			}).catch(error => {
+            				console.error('Failed to process recording:', error);
+            				const reason = error && error.message && !/^\d+$/.test(error.message) ? ` (${error.message})` : '';
             				alert(
-            					"Sorry, we weren't able to process your recording. " +
+            					`Sorry, we weren't able to process your recording${reason}. ` +
             					"Make sure to speak clearly and ensure " +
             					"that your transcript matches the audio. " +
-            					"For increased chance of success," +
+            					"For increased chance of success, " +
             					"try using short clips with a 1-second period of silence."
             				);
+            				loadingMessage.textContent = defaultMessage;
             				$('button.new-clip').classList.remove('hidden');
             				$('button.new-clip + .spinner').classList.add('hidden');
             			});
@@ -2521,8 +2625,6 @@ let brightIcon = String(`
    inkscape:version="0.92.4 (5da689c313, 2019-01-14)"
    sodipodi:docname="bright.svg">
   <defs id="defs4559">
-	<link href="style.css" type="text/css" rel="stylesheet" 
-          xmlns="http://www.w3.org/1999/xhtml"/>
   </defs>
   <sodipodi:namedview
      id="base"

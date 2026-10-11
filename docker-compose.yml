@@ -1,0 +1,18 @@
+services:
+  web:
+    build:
+      context: .
+      # Large conda downloads (kaldi, scipy) drop over Docker's default bridge
+      # network on some hosts (notably WSL); building on the host network avoids it.
+      network: host
+    image: gvv-dev
+    ports:
+      # Loopback only: the server has no authentication, and uploaded
+      # recordings are kept in ./rec.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # Mount the working tree so local changes are picked up without a rebuild.
+      - .:/app
+      # Keep each clip's working files (audio, MFA logs, TextGrid) on the host.
+      # Must be world-writable: the CGI runs as `nobody`.
+      - ./rec:/rec

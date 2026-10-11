@@ -53,11 +53,6 @@ def compute_resonance(data, weights=[2/5, 2/5, 1/5]):
 
 	for i in range(len(data['phones'])):
 		currentPhone = data['phones'][i]
-		
-		isVowel = currentPhone['phoneme'] and len([
-			value for value in list(currentPhone['phoneme'])
-			if value in ["A", "E", "I", "O", "U", "Y"]
-		]) > 1
 
 		if ('F_stdevs' in currentPhone  and currentPhone['F_stdevs'][1] and
 			currentPhone['F_stdevs'][2] and currentPhone['F_stdevs'][3]

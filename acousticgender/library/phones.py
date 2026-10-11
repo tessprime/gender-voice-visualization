@@ -1,5 +1,25 @@
 import re
 
+# ARPABET phonemes by how air flows through the vocal tract. Vowels and
+# sonorants are voiced with little obstruction, so they have real formants;
+# obstruents block or constrict the air (silence, bursts, hiss), so formant
+# measurements for them are mostly artifacts. Keep in sync with
+# phoneClass() in ui/util.js.
+VOWELS = {'AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'EH', 'ER', 'EY', 'IH', 'IY',
+          'OW', 'OY', 'UH', 'UW'}
+SONORANTS = {'M', 'N', 'NG', 'L', 'R', 'W', 'Y'}
+OBSTRUENTS = {'P', 'B', 'T', 'D', 'K', 'G', 'F', 'V', 'TH', 'DH', 'S', 'Z',
+              'SH', 'ZH', 'HH', 'CH', 'JH'}
+
+def phone_class(phoneme):
+	"""'vowel', 'sonorant' or 'obstruent', or None for silence and unknown
+	labels. Stress digits (AH0, AH1) are ignored."""
+	base = re.sub(r'\d', '', phoneme or '')
+	if base in VOWELS: return 'vowel'
+	if base in SONORANTS: return 'sonorant'
+	if base in OBSTRUENTS: return 'obstruent'
+	return None
+
 def parse(praat_output):
 	word_lines = []
 	phoneme_lines = []
@@ -52,6 +72,7 @@ def parse(praat_output):
 		data['phones'].append({
 			'time': time,
 			'phoneme': cols[1],
+			'class': phone_class(cols[1]),
 			'word_index': word_index,
 			'word': data['words'][word_index],
 			'word_time': data['words'][word_index]['time'],

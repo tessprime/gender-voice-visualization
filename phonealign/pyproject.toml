@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phonealign"
+version = "0.0.1"
+description = "Fast forced alignment of single recordings using Kaldi via kalpy"
+readme = "README.md"
+requires-python = ">=3.11"
+# kalpy is installed through conda for now; see README.md.
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]

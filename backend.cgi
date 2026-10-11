@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
 
-import os, random, json, statistics, hashlib, datetime
+import os, json, hashlib, datetime
 import cgi, cgitb   # I like cgi because it was popular when I was born
 import maxminddb
 
 import acousticgender
-import acousticgender.library.preprocessing as preprocessing
-import acousticgender.library.phones as phones
-import acousticgender.library.resonance as resonance
+from acousticgender.library.analysis import analyze
 
 settings = acousticgender.library.settings.settings
-
-# Helpers
-random_id = lambda: str(random.randint(0, 2**32))
 
 request_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -25,19 +20,9 @@ form = cgi.FieldStorage()
 uploaded_file = form.getvalue('recording')
 transcript = form.getvalue('transcript')
 
+id, data = analyze(uploaded_file, transcript)
 
-id = random_id()
-
-tmp_dir =  settings['recordings'] + id
-
-praat_output = preprocessing.process(uploaded_file, transcript, tmp_dir)
-
-data = phones.parse(praat_output)
-
-weights = [0.7321428571428571, 0.26785714285714285, 0.0]
-resonance.compute_resonance(data, weights)
-
-print(json.dumps(data))	
+print(json.dumps(data))
 
 countries = None
 if os.path.exists('./countries.mmdb'):

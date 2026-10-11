@@ -17,7 +17,7 @@ with open('./resources/themes.json') as f:
 
 
 
-rendered = template.render(dev=settings['dev'], theme=themes['Deep Dark']);
+rendered = template.render(dev=settings['dev'], theme=themes['Deep Dark'], server_analysis=True);
 
 
 print("Content-type: text/html\n")
