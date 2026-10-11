@@ -13,6 +13,9 @@ globalState.init('playbackTime', 0);
 globalState.init('previewClip', null);
 globalState.init('playing', false);
 globalState.init('transcript', null);
+// The word being heard, from the player or a constellation's vowel playback:
+// {clip, wordIndex} (a phone's word_index), or null. See setSpokenWord().
+globalState.init('spokenWord', null);
 
 
 /*

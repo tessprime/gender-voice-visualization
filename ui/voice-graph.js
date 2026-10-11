@@ -31,6 +31,7 @@ function vowelGroups(clip) {
 			hz: phone.F[0],
 			start: phone.time,
 			word: phone.word ? phone.word.word : '',
+			wordIndex: phone.word_index,
 			wordStart: phone.word_time,
 			wordEnd: wordEnd(phones, index),
 		});
@@ -407,6 +408,7 @@ class VoiceGraph {
 				playback.timers.push(setTimeout(() => {
 					for (let element of elements) element.classList.remove('current');
 					elements[index].classList.add('current');
+					setSpokenWord(clip, instance.wordIndex);
 				}, delay));
 				when += duration + VOWEL_GAP;
 			}
@@ -426,6 +428,7 @@ class VoiceGraph {
 		for (let timer of playback.timers) clearTimeout(timer);
 		for (let element of playback.elements) element.classList.remove('current');
 		playback.dot.classList.remove('playing');
+		setSpokenWord(null);
 		playback.onStop();
 	}
 

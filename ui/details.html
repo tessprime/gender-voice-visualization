@@ -1,6 +1,11 @@
 
 <!-- Details -->
 <style>
+#preview-transcript .transcript-word.current {
+	background: yellow;
+	color: black;
+	border-radius: 2px;
+}
 .details  h2 {
 	margin-bottom: .5em;
 	margin-top: 0px;
@@ -144,12 +149,52 @@ globalState.render(['previewClip'], current => {
 			$('#preview-median-resonance').innerHTML = Math.round(current.previewClip.medianResonance * 100) + '%';
 		}
 		if (current.previewClip.transcript) {
-			$('#preview-transcript').innerHTML = current.previewClip.transcript;
+			showTranscript(current.previewClip);
 		}
 	} else {
 		$('.details').classList.remove('has-selection');
 	}
 })
+
+// The transcript, one span per word, so the word being heard can be
+// highlighted. transcriptSpans maps word_index to its spans.
+let transcriptSpans = new Map();
+function showTranscript(clip) {
+	let element = $('#preview-transcript');
+	element.textContent = '';
+	transcriptSpans = new Map();
+	for (let piece of transcriptPieces(clip.transcript, clip.phones || [])) {
+		if (!piece.wordIndices.length) {
+			element.appendChild(document.createTextNode(piece.text));
+			continue;
+		}
+		let word = document.createElement('span');
+		word.className = 'transcript-word';
+		word.textContent = piece.text;
+		for (let index of piece.wordIndices) {
+			transcriptSpans.set(index, (transcriptSpans.get(index) || []).concat([word]));
+		}
+		element.appendChild(word);
+	}
+}
+
+globalState.render(['spokenWord', 'previewClip'], current => {
+	for (let word of $$('#preview-transcript .transcript-word.current')) {
+		word.classList.remove('current');
+	}
+	let spoken = current.spokenWord;
+	if (spoken && spoken.clip == current.previewClip) {
+		for (let word of transcriptSpans.get(spoken.wordIndex) || []) word.classList.add('current');
+	}
+});
+
+// The player's word: the one at the playback position (none in silences).
+globalState.render(['playbackTime', 'playingClip'], current => {
+	let clip = current.playingClip;
+	let phone = clip && clip.indexedPhones && current.playbackTime > 0
+		? clip.indexedPhones[Math.floor(current.playbackTime * 100)] : null;
+	setSpokenWord(clip, phone && phone.word && phone.word.word ? phone.word_index : null);
+});
 
 $('section.details button.download').addEventListener('click', evt => {
 	let previewClip = globalState.get('previewClip');
