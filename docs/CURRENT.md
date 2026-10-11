@@ -3,6 +3,50 @@
 What we're working on right now, kept up to date as work happens. The
 longer-term plan is in [ROADMAP.md](ROADMAP.md).
 
+## Goal: voicealign, phonealign's forced alignment in Rust
+
+Port what `phonealign` does through kalpy/Kaldi to a Rust crate,
+`voicealign/`, compilable to WebAssembly, so alignment can run in the
+browser. Kaldi is Apache-2.0, so its source can be ported directly. Each
+stage is validated against kalpy on the test clip.
+
+What kalpy actually runs for this model (`english_us_arpa`), which differs
+from the model's metadata (`uses_deltas: true`): kalpy switches to splicing
++ LDA whenever the model has an `lda.mat`, and aligns with `final.alimdl`
+(the speaker-independent model; a different file from `final.mdl`)
+whenever there's no speaker transform. So:
+
+  MFCC (13) → CMVN (mean only) → splice ±3 frames (91) → LDA (40 × 91)
+  → GMM-HMM alignment with `final.alimdl`
+
+Phones are not position-dependent (72 phones). Model files are in Kaldi's
+binary format.
+
+- [x] **1. Features**: MFCC, CMVN, splice, LDA (`src/features.rs`, ported
+      from Kaldi), and a reader for Kaldi's binary format
+      (`src/kaldi_io.rs`). `reference/dump_kalpy.py` dumps kalpy's
+      features at each stage (dither off); `examples/compare_features.rs`
+      compares. Test clip, 2638 frames (same count as kalpy):
+
+      | stage | median \|difference\| | max | values up to |
+      |---|---|---|---|
+      | MFCC | 1.6e-5 | 0.019 | 116 |
+      | CMVN | 1.6e-5 | 0.019 | 107 |
+      | splice + LDA (alignment input) | 1.5e-6 | 0.0027 | 11 |
+
+      At float32 rounding level (Kaldi computes in float, we in double);
+      the largest are probably near-silent frames, where the log of a tiny
+      energy amplifies rounding. Step 5 will show whether they matter.
+- [ ] **2. Model loading**: transition model and diagonal GMMs
+      (`final.alimdl`), decision tree (`tree`). *Next.* `final.alimdl` is
+      `<TransitionModel>` (`<Topology>`, `<Triples>`, `<LogProbs>`) then
+      the GMMs (`<DIMENSION>`, `<NUMPDFS>` = 5912, each `<DiagGMM>` with
+      `<GCONSTS>`, `<WEIGHTS>`, `<MEANS_INVVARS>`, `<INV_VARS>`).
+- [ ] **3. Graph compilation**: lexicon + transcript → alignment graph,
+      as kalpy's `TrainingGraphCompiler`.
+- [ ] **4. Alignment**: Viterbi with beam 10, retry beam 40.
+- [ ] **5. Output**: word and phone times; compare with `phonealign`.
+
 ## Goal: voicemeasure, Praat's pitch and formant analysis in Rust
 
 The fork is moving all processing into the browser. Praat (pitch and
