@@ -100,6 +100,41 @@ the Docker image is the reference.
       consonants, so the voicing-edge bias moves it); clip median resonance
       by a median 0.18 points (max 1.6).
 
+- [x] **5. WebAssembly build.** `src/wasm.rs` exports a minimal C-style
+      interface (`vm_alloc`, `vm_measure`, `vm_free`; no bindings
+      generator). `cargo build --release --target wasm32-unknown-unknown`
+      gives a 318 KB module (117 KB gzipped) that instantiates in 7-17 ms.
+      `reference/check_wasm.mjs` runs it in Node. Its output is
+      byte-identical to the native build's on the test clip.
+
+      Speed, measuring at the test clip's 266 phone midpoints (26 s of
+      audio), warm runs: native ~225 ms, Node ~305 ms, Chromium 136
+      ~290 ms (first run ~500 ms). Firefox 137 *as bundled with
+      Playwright* took ~7.5 s, but a regular **Firefox 157 on Windows**
+      matched Chromium within ~10% (`reference/wasm_test.html`, which
+      times each stage, on a synthetic signal or a chosen audio file decoded
+      at 16 kHz). So the slowness was Playwright's Firefox build.
+
+      The synthetic signal exposed a slow path: formant root finding
+      (Durand-Kerner) never met its 1e-14 stopping threshold when roots were
+      clustered, so most frames ran the full 500 iterations (median 9 on
+      real speech); formants took 1460 ms instead of ~190. Now Aberth's
+      method, stopping at 1e-12 (Newton polishing follows), max 100
+      iterations: ~200 ms on both signals, with identical results on the
+      test clip and unchanged numbers on all 21 example clips.
+
+      Speed-ups on the way (results unchanged: identical at all 266
+      midpoints): resampling, 97% of the time at first (2.0 of 2.1 s), went
+      to 140 ms with polyphase interpolation (16 -> 10 kHz repeats every 5
+      outputs, so the sinc weights are computed once per phase).
+
+      **Bug found and fixed along the way:** a faster sine trick lost
+      precision when an output sample landed within ~1e-10 of an input
+      sample (every fifth sample, at 16 -> 10 kHz), giving sinc values like
+      0.9998 instead of 1 and shifting formants by up to 4 Hz. Fixed by
+      computing the sine from the distance's fractional part; a unit test
+      now covers positions next to whole samples.
+
 ## Goal: harden `serve.py` for a small real deployment
 
 A friend may host the app from the Docker image. `serve.py` began as a dev

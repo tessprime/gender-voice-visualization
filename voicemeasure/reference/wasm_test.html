@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>voicemeasure WASM test</title>
+<style>
+	:root { --bg: #fff; --fg: #1b1b1b; --muted: #666; --line: #ddd; --accent: #2a5bd7; }
+	@media (prefers-color-scheme: dark) { :root { --bg: #161616; --fg: #e8e8e8; --muted: #9a9a9a; --line: #333; --accent: #7aa2ff; } }
+	body { background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 2rem auto; padding: 0 1rem; }
+	h1 { font-size: 1.3rem; }
+	button { font: inherit; padding: .4rem .9rem; margin-right: .5rem; cursor: pointer; }
+	.muted { color: var(--muted); }
+	table { border-collapse: collapse; margin: .8rem 0; width: 100%; }
+	td, th { border-bottom: 1px solid var(--line); padding: .3rem .5rem; text-align: left; font-variant-numeric: tabular-nums; }
+	#log { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>voicemeasure WASM test</h1>
+<p class="muted">Loads the WebAssembly module, then times the measurement the app makes (F0 and F1&ndash;F3 at many points) and each stage separately. Everything runs in this page; nothing is uploaded.</p>
+<p>
+	<button id="synthetic">Run on a 26&nbsp;s test signal</button>
+	<label><button id="pick" type="button">Run on an audio file&hellip;</button><input id="file" type="file" accept="audio/*" hidden></label>
+</p>
+<div id="log">Loading module&hellip;</div>
+
+<script type="module">
+const log = document.getElementById('log');
+const print = text => { log.textContent += '\n' + text; };
+
+let wasm;
+try {
+	const t0 = performance.now();
+	const bytes = await (await fetch('../target/wasm32-unknown-unknown/release/voicemeasure.wasm')).arrayBuffer();
+	const t1 = performance.now();
+	wasm = (await WebAssembly.instantiate(bytes, {})).instance.exports;
+	log.textContent = `${navigator.userAgent}\nmodule: ${(bytes.byteLength / 1024).toFixed(0)} KB, fetched in ${(t1 - t0).toFixed(0)} ms, compiled + instantiated in ${(performance.now() - t1).toFixed(0)} ms`;
+} catch (e) {
+	log.textContent = 'Failed to load the module: ' + e;
+	throw e;
+}
+
+function copyIn(values) {
+	const pointer = wasm.vm_alloc(values.length);
+	new Float64Array(wasm.memory.buffer, pointer, values.length).set(values);
+	return pointer;
+}
+
+const time = f => { const start = performance.now(); f(); return performance.now() - start; };
+
+async function run(samples, rate, label) {
+	const duration = samples.length / rate;
+	const times = Float64Array.from({ length: Math.floor(duration * 10) }, (_, i) => 0.05 + i * 0.1);
+	print(`\n${label}: ${duration.toFixed(1)} s at ${rate} Hz, measuring at ${times.length} points`);
+	await new Promise(r => setTimeout(r, 30)); // let the page repaint first
+
+	const s = copyIn(samples), t = copyIn(times), out = wasm.vm_alloc(4 * times.length);
+	const full = [];
+	for (let i = 0; i < 5; i++) full.push(time(() => wasm.vm_measure(s, samples.length, rate, t, times.length, out)));
+	print(`full measurement, 5 runs (ms): ${full.map(x => x.toFixed(0)).join(', ')}`);
+	for (const [stage, name] of [[0, 'resample to 10 kHz'], [1, 'formants (incl. resampling)'], [2, 'pitch']]) {
+		const runs = [0, 1, 2].map(() => time(() => wasm.vm_stage(s, samples.length, rate, stage)));
+		print(`  ${name.padEnd(28)} (ms): ${runs.map(x => x.toFixed(0)).join(', ')}`);
+	}
+	const values = new Float64Array(wasm.memory.buffer, out, 4 * times.length);
+	const middle = 4 * Math.floor(times.length / 2);
+	print(`sample result at ${times[middle / 4].toFixed(2)} s: F0 ${values[middle].toFixed(1)}, F1 ${values[middle + 1].toFixed(0)}, F2 ${values[middle + 2].toFixed(0)}, F3 ${values[middle + 3].toFixed(0)} Hz`);
+	wasm.vm_free(s, samples.length); wasm.vm_free(t, times.length); wasm.vm_free(out, 4 * times.length);
+}
+
+// A rough vowel: a harmonic source with slowly varying pitch, through two
+// resonances near 700 and 1200 Hz, plus a little noise.
+function syntheticVoice(rate, seconds) {
+	const n = Math.round(rate * seconds), x = new Float64Array(n);
+	let phase = 0, y1 = 0, y2 = 0, z1 = 0, z2 = 0, seed = 1;
+	const resonator = (f, bw) => { const r = Math.exp(-Math.PI * bw / rate); return [2 * r * Math.cos(2 * Math.PI * f / rate), -r * r]; };
+	const [a1, a2] = resonator(700, 120), [b1, b2] = resonator(1200, 150);
+	for (let i = 0; i < n; i++) {
+		const t = i / rate;
+		phase += 2 * Math.PI * (160 + 30 * Math.sin(2 * Math.PI * 0.3 * t)) / rate;
+		seed = (seed * 1103515245 + 12345) % 2147483648;
+		let source = 0;
+		for (let h = 1; h <= 20; h++) source += Math.sin(h * phase) / h;
+		source += 0.02 * (seed / 2147483648 - 0.5);
+		const y = source + a1 * y1 + a2 * y2; y2 = y1; y1 = y;
+		const z = y + b1 * z1 + b2 * z2; z2 = z1; z1 = z;
+		x[i] = z;
+	}
+	const peak = x.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+	return x.map(v => 0.5 * v / peak);
+}
+
+document.getElementById('synthetic').onclick = () => run(syntheticVoice(16000, 26), 16000, 'test signal');
+document.getElementById('pick').onclick = () => document.getElementById('file').click();
+document.getElementById('file').onchange = async event => {
+	const file = event.target.files[0];
+	if (!file) return;
+	// Decode at 16 kHz, as the app will: decodeAudioData resamples to the
+	// context's rate, which otherwise is the audio device's (often 48 kHz).
+	const audio = await new AudioContext({ sampleRate: 16000 }).decodeAudioData(await file.arrayBuffer());
+	run(Float64Array.from(audio.getChannelData(0)), audio.sampleRate, file.name);
+};
+</script>
+</body>
+</html>

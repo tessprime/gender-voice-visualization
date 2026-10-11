@@ -29,6 +29,21 @@ Compared with Praat 6.4.06 on the web app's 21 example clips, at their
 Undocumented details were settled by comparison with Praat; see
 `docs/CURRENT.md` in the web app's repository.
 
+## WebAssembly
+
+```sh
+cargo build --release --target wasm32-unknown-unknown
+# -> target/wasm32-unknown-unknown/release/voicemeasure.wasm (~320 KB, ~120 KB gzipped)
+node reference/check_wasm.mjs target/wasm32-unknown-unknown/release/voicemeasure.wasm recording.wav times.txt
+```
+
+The module exports `vm_alloc`, `vm_measure` and `vm_free` (see `src/wasm.rs`);
+`reference/check_wasm.mjs` shows how to call them. On a 26 s recording,
+measuring takes ~270 ms in Chromium; Firefox is currently much slower
+(~7.5 s in Playwright's Firefox build), cause not yet known.
+
+`cargo run --release --example bench -- recording.wav` times each stage.
+
 ## Comparing with Praat
 
 ```sh

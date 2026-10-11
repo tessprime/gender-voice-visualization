@@ -5,6 +5,17 @@ edition = "2021"
 description = "Pitch and formant analysis matching Praat's, for measuring voices in the browser"
 publish = false
 
+[lib]
+# cdylib for the WebAssembly module, rlib for use from Rust.
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+# Smaller WebAssembly; costs little speed for this kind of code.
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
 [dependencies]
 rustfft = "6"
 
