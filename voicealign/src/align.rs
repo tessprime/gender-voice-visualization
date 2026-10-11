@@ -42,10 +42,12 @@ pub struct Segment {
 pub const FRAME_SHIFT: f64 = 0.01;
 
 impl Segment {
-    /// Start and end in seconds. The last frame can extend past the end of
-    /// the recording; like kalpy, end times are clipped to `duration`.
-    pub fn seconds(&self, duration: f64) -> (f64, f64) {
-        (self.start as f64 * FRAME_SHIFT, (self.end as f64 * FRAME_SHIFT).min(duration))
+    /// Start and end in seconds, for a recording `duration` seconds long.
+    /// Like kalpy, a segment ending at the last frame ends at the end of the
+    /// recording (the frames don't cover it exactly).
+    pub fn seconds(&self, duration: f64, frames: usize) -> (f64, f64) {
+        let end = if self.end >= frames { duration } else { (self.end as f64 * FRAME_SHIFT).min(duration) };
+        (self.start as f64 * FRAME_SHIFT, end)
     }
 }
 

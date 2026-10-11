@@ -279,12 +279,20 @@ impl TransitionModel {
     }
 }
 
-/// One diagonal-covariance Gaussian mixture.
+/// One diagonal-covariance Gaussian mixture. Parameters are kept as f32,
+/// as in the model file, which halves memory (a model has ~150k Gaussians);
+/// arithmetic is in f64.
 #[derive(Clone, Debug)]
 pub struct DiagGmm {
     gconsts: Vec<f64>,
-    means_invvars: Matrix,
-    inv_vars: Matrix,
+    dim: usize,
+    /// Row-major, one row per component.
+    means_invvars: Vec<f32>,
+    inv_vars: Vec<f32>,
+}
+
+fn to_f32(m: &Matrix) -> Vec<f32> {
+    m.data.iter().map(|&v| v as f32).collect()
 }
 
 impl DiagGmm {
@@ -325,7 +333,7 @@ impl DiagGmm {
                 g
             })
             .collect();
-        Ok(DiagGmm { gconsts, means_invvars, inv_vars })
+        Ok(DiagGmm { gconsts, dim, means_invvars: to_f32(&means_invvars), inv_vars: to_f32(&inv_vars) })
     }
 
     pub fn num_components(&self) -> usize {
@@ -335,12 +343,12 @@ impl DiagGmm {
     /// log p(x) under the mixture.
     pub fn log_likelihood(&self, x: &[f64]) -> f64 {
         let squared: Vec<f64> = x.iter().map(|v| v * v).collect();
+        let dim = self.dim;
         let component = |m: usize| -> f64 {
             let mut l = self.gconsts[m];
-            for ((&mi, &iv), (&xi, &x2)) in
-                self.means_invvars.row(m).iter().zip(self.inv_vars.row(m)).zip(x.iter().zip(&squared))
-            {
-                l += mi * xi - 0.5 * iv * x2;
+            let (mi, iv) = (&self.means_invvars[m * dim..(m + 1) * dim], &self.inv_vars[m * dim..(m + 1) * dim]);
+            for d in 0..dim {
+                l += mi[d] as f64 * x[d] - 0.5 * iv[d] as f64 * squared[d];
             }
             l
         };

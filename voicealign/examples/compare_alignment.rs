@@ -62,13 +62,13 @@ fn main() {
     };
     let duration = samples.len() as f64 / 16000.0;
     let ours_phones: Vec<(f64, f64, String)> = alignment.phones.iter()
-        .map(|s| { let (a, b) = s.seconds(duration); (a, b, phone_names[&s.label].clone()) }).collect();
+        .map(|s| { let (a, b) = s.seconds(duration, features.rows); (a, b, phone_names[&s.label].clone()) }).collect();
     let kalpy_phones = intervals("phone ");
     let same_phones = ours_phones.iter().zip(&kalpy_phones)
         .filter(|(a, b)| (a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3 && a.2 == b.2).count();
     println!("phones: ours {}, kalpy {}; identical (label and times) {same_phones}", ours_phones.len(), kalpy_phones.len());
     let ours_words: Vec<(f64, f64, String)> = alignment.words.iter()
-        .map(|s| { let (a, b) = s.seconds(duration); (a, b, words[s.label].clone()) }).collect();
+        .map(|s| { let (a, b) = s.seconds(duration, features.rows); (a, b, words[s.label].clone()) }).collect();
     let kalpy_words: Vec<(f64, f64, String)> = intervals("word ").into_iter().filter(|w| w.2 != "<eps>").collect();
     let same_words = ours_words.iter().zip(&kalpy_words)
         .filter(|(a, b)| (a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3 && a.2 == b.2).count();
@@ -76,5 +76,8 @@ fn main() {
     let close = |a: &(f64, f64, String), b: &(f64, f64, String)| (a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3 && a.2 == b.2;
     for (a, b) in ours_phones.iter().zip(&kalpy_phones).filter(|(a, b)| !close(a, b)).take(3) {
         println!("  phone differs: ours {:?}, kalpy {:?}", a, b);
+    }
+    for (a, b) in ours_words.iter().zip(&kalpy_words).filter(|(a, b)| !close(a, b)).take(3) {
+        println!("  word differs: ours {:?}, kalpy {:?}", a, b);
     }
 }

@@ -26,7 +26,32 @@ Work in progress; see `docs/CURRENT.md` in the web app's repository.
   transition id, phone and word times) is identical to kalpy's.
 
 `examples/compare_alignment.rs` runs the whole pipeline from a WAV file and
-compares with `reference/dump_alignment.py`'s output.
+compares with `reference/dump_alignment.py`'s output. On the web app's 21
+example clips, 99.88% of frames are identical to kalpy's
+(`reference/check_examples.py`); the rest differ through beam pruning.
+
+## Usage
+
+```rust
+let aligner = voicealign::Aligner::new(&final_alimdl, &tree, &lda_mat, &phones_txt, &dictionary)?;
+let alignment = aligner.align(&samples, 16000, "When the sunlight strikes...")?; // f32 samples, -1..1
+for word in &alignment.words {
+    println!("{:.2}-{:.2} {}", word.start, word.end, word.label);
+}
+```
+
+`cargo run --release --example align_api -- MODEL_DIR dictionary.dict recording.wav transcript.txt`
+
+## WebAssembly
+
+```sh
+cargo build --release --target wasm32-unknown-unknown   # ~480 KB, ~190 KB gzipped
+node reference/check_wasm.mjs target/wasm32-unknown-unknown/release/voicealign.wasm MODEL_DIR dictionary.dict recording.wav transcript.txt
+```
+
+`src/wasm.rs` documents the interface (`va_new`, `va_align` returning JSON).
+Loading the model and full dictionary takes ~2.4 s; aligning a 26 s
+recording ~300 ms.
 
 ## Comparing with kalpy
 

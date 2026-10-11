@@ -5,6 +5,15 @@ edition = "2021"
 description = "Forced alignment of recordings to transcripts with Kaldi GMM-HMM models, for the browser"
 publish = false
 
+[lib]
+# cdylib for the WebAssembly module, rlib for use from Rust.
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+
 [dependencies]
 rustfft = "6"
 

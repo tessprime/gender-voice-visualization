@@ -124,7 +124,38 @@ binary format.
       identically in both graphs, which is why step 3's check missed it.
       Rerunning kalpy with beams up to 200 (-166464.69) ruled out pruning
       before the cause was found.
-- [ ] **5. Output**: word and phone times; compare with `phonealign`.
+- [x] **5. More recordings, an API, WebAssembly.**
+      - **21 example clips** (`reference/check_examples.py`, dither off):
+        42463/42515 frames' transition ids identical to kalpy's (99.88%);
+        18 clips entirely identical. `luna` (ours slightly worse) and
+        `david` (both retried with beam 40; ours better) differ through
+        beam pruning: Kaldi pushes the lexicon costs to other places in
+        its graph, so intermediate scores, and so pruning, differ.
+        Reported differently: OOV words keep their text (kalpy: `<unk>`),
+        and like kalpy, the last segment ends at the end of the recording.
+      - **Transcript normalization** (`lexicon::normalize`), dictionary-
+        aware like MFA's SimpleTokenizer: hyphenated words not in the
+        dictionary are split; clitics split off (`x's` → `x` `'s`);
+        `’` counts as an apostrophe. Identical to kalpy on all 21
+        transcripts.
+      - **API** (`Aligner`, src/aligner.rs): load from the model files'
+        bytes and a dictionary; `align(samples, 16000, transcript)` →
+        word and phone intervals. Dither (sd 1, fixed seed, own PRNG) is
+        on by default, as phonealign. With dither off it reproduces kalpy
+        exactly (72/72 words on the test clip); with dither on, 53/72 words
+        identical, the rest mostly 10-120 ms apart, plus one ambiguous "a"
+        placed after a pause instead of before.
+      - GMM parameters stored as f32 (as in the file): half the memory,
+        identical results.
+      - **WebAssembly** (src/wasm.rs; `va_alloc`, `va_new`, `va_align`
+        returning JSON, `va_free`): 479 KB (189 KB gzipped).
+        `reference/check_wasm.mjs` in Node: load model + full 208k-word
+        dictionary 2.4 s, align the 26 s test clip in 275-450 ms (617 ms
+        first run), 230 MB memory. Natively: load 0.5 s, align ~100 ms.
+
+      Possible next steps: faster/lighter loading (parse straight to f32;
+      a compact dictionary or only the words needed), and the browser glue
+      that combines voicealign and voicemeasure.
 
 ## Goal: voicemeasure, Praat's pitch and formant analysis in Rust
 
