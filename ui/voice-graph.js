@@ -13,10 +13,13 @@ const VOWEL_LABELS = {
 // Group a clip's vowel phones by vowel. Each group has the vowel's average
 // position and the positions of every instance. Only phones with both a
 // pitch and a resonance count, and outliers are skipped, as for the
-// clip's own median.
+// clip's own median. Each instance keeps its word and the word's span in
+// the recording, which ends where the next word (or silence) starts, or at
+// the end of the audio.
 function vowelGroups(clip) {
 	let groups = {};
-	for (let phone of clip.phones || []) {
+	let phones = clip.phones || [];
+	for (let [index, phone] of phones.entries()) {
 		if (phoneClass(phone.phoneme) != 'vowel' || phone.outlier) continue;
 		if (!phone.F || !phone.F[0] || phone.resonance == null) continue;
 		let key = phone.phoneme == 'AH0' ? 'SCHWA' : phone.phoneme.replace(/\d/g, '');
@@ -26,6 +29,10 @@ function vowelGroups(clip) {
 			pitch: pitchPercent(phone.F[0]),
 			resonance: phone.resonance,
 			hz: phone.F[0],
+			start: phone.time,
+			word: phone.word ? phone.word.word : '',
+			wordStart: phone.word_time,
+			wordEnd: wordEnd(phones, index),
 		});
 	}
 	for (let group of Object.values(groups)) {
@@ -35,6 +42,37 @@ function vowelGroups(clip) {
 		group.resonance = mean(group.instances.map(i => i.resonance));
 	}
 	return Object.values(groups);
+}
+
+// Playing parts of a clip, like a constellation's vowels, needs sample
+// accuracy that seeking the player's <audio> element doesn't have, so they
+// play through Web Audio from the clip's decoded audio (cached per clip).
+let vowelAudioContext = null;
+const decodedClipAudio = new WeakMap();
+function decodeClipAudio(clip) {
+	vowelAudioContext = vowelAudioContext || new AudioContext();
+	if (!decodedClipAudio.has(clip)) {
+		let decoding = fetch(clip.audio)
+			.then(response => response.arrayBuffer())
+			.then(data => vowelAudioContext.decodeAudioData(data));
+		decoding.catch(() => decodedClipAudio.delete(clip));
+		decodedClipAudio.set(clip, decoding);
+	}
+	return decodedClipAudio.get(clip);
+}
+
+// Vowel playback: each instance plays its whole word (an isolated vowel is
+// often too short to hear), with a little audio either side, faded in and
+// out to avoid clicks, and a pause between words.
+const VOWEL_PADDING = .03;
+const VOWEL_FADE = .015;
+const VOWEL_GAP = .35;
+
+// When the word of phones[index] ends: where the next phone of another
+// word starts, or null for the end of the audio.
+function wordEnd(phones, index) {
+	let next = phones.slice(index + 1).find(phone => phone.word_index != phones[index].word_index);
+	return next ? next.time : null;
 }
 
 class VoiceGraph {
@@ -117,6 +155,10 @@ class VoiceGraph {
 				this.update(marker);
 			}
 			this.closeConstellation();
+		});
+		// The player and vowel playback shouldn't play over each other.
+		globalState.render(['playing'], current => {
+			if (current.playing) this.stopVowel();
 		});
 		globalState.render(['clips'], current => {
 			let orphanedMarkers = Array.from($$('.marker'));
@@ -263,7 +305,11 @@ class VoiceGraph {
 			let groupPosition = this.position(group.pitch, group.resonance);
 
 			let instances = group.instances.map(instance => {
-				let dot = div({'class': 'vowel-instance'});
+				// The word shows while it plays. (Text, not HTML: span() would
+				// parse it.)
+				let label = span('', {'class': 'vowel-label'});
+				label.textContent = instance.word;
+				let dot = div({'class': 'vowel-instance'}, [label]);
 				dot.style.transform = groupPosition;
 				container.appendChild(dot);
 				return {element: dot, target: this.position(instance.pitch, instance.resonance)};
@@ -272,20 +318,28 @@ class VoiceGraph {
 			let vowelDot = div({
 				'class': 'vowel-dot',
 				'title': `${group.label}: average of ${group.instances.length}, `
-					+ `${Math.round(group.hz)}Hz, ${Math.round(group.resonance * 100)}% resonance`,
+					+ `${Math.round(group.hz)}Hz, ${Math.round(group.resonance * 100)}% resonance. `
+					+ 'Click to hear each one.',
 			}, [span(group.label, {'class': 'vowel-label'})]);
 			vowelDot.style.transform = origin;
-			vowelDot.addEventListener('mouseenter', () => {
+			let showInstances = shown => {
 				for (let instance of instances) {
-					instance.element.style.transform = instance.target;
-					instance.element.classList.add('shown');
+					instance.element.style.transform = shown ? instance.target : groupPosition;
+					instance.element.classList.toggle('shown', shown);
 				}
-			});
-			vowelDot.addEventListener('mouseleave', () => {
-				for (let instance of instances) {
-					instance.element.style.transform = groupPosition;
-					instance.element.classList.remove('shown');
+			};
+			let isPlaying = () => this.vowelPlayback && this.vowelPlayback.dot == vowelDot;
+			vowelDot.addEventListener('mouseenter', () => showInstances(true));
+			// While its instances play, they stay out even without the pointer.
+			vowelDot.addEventListener('mouseleave', () => isPlaying() || showInstances(false));
+			vowelDot.addEventListener('click', () => {
+				if (isPlaying()) {
+					this.stopVowel();
+					return;
 				}
+				showInstances(true);
+				this.playVowel(clip, group.instances, instances.map(i => i.element), vowelDot,
+					() => vowelDot.matches(':hover') || showInstances(false));
 			});
 			container.appendChild(vowelDot);
 			dots.push({element: vowelDot, target: groupPosition});
@@ -302,13 +356,82 @@ class VoiceGraph {
 
 	// Close after a delay, so the pointer can cross the gap between the
 	// clip marker and the constellation's dots.
+	// It stays open while a vowel plays and closes once it's done.
 	scheduleConstellationClose() {
 		clearTimeout(this.constellationCloseTimer);
-		this.constellationCloseTimer = setTimeout(() => this.closeConstellation(), 800);
+		this.constellationCloseTimer = setTimeout(() => {
+			if (this.vowelPlayback) {
+				this.scheduleConstellationClose();
+			} else {
+				this.closeConstellation();
+			}
+		}, 800);
+	}
+
+	// Play the word of each of a vowel's instances, in the order they were
+	// spoken, highlighting the one that's playing. onStop runs when it finishes or
+	// is stopped.
+	playVowel(clip, instances, elements, dot, onStop) {
+		this.stopVowel();
+		globalState.set('playing', false);
+		let playback = {dot: dot, sources: [], timers: [], elements: elements, onStop: onStop};
+		this.vowelPlayback = playback;
+		dot.classList.add('playing');
+
+		decodeClipAudio(clip).then(buffer => {
+			if (this.vowelPlayback != playback) return;
+			let context = vowelAudioContext;
+			context.resume();
+			let order = instances.map((instance, index) => index)
+				.sort((a, b) => instances[a].start - instances[b].start);
+			let when = context.currentTime + .05;
+			for (let index of order) {
+				let instance = instances[index];
+				let start = Math.max(0, instance.wordStart - VOWEL_PADDING);
+				let end = Math.min(buffer.duration, (instance.wordEnd == null ? buffer.duration : instance.wordEnd) + VOWEL_PADDING);
+				let duration = Math.max(end - start, 2 * VOWEL_FADE);
+
+				let gain = context.createGain();
+				gain.gain.setValueAtTime(0, when);
+				gain.gain.linearRampToValueAtTime(1, when + VOWEL_FADE);
+				gain.gain.setValueAtTime(1, when + duration - VOWEL_FADE);
+				gain.gain.linearRampToValueAtTime(0, when + duration);
+				gain.connect(context.destination);
+				let source = context.createBufferSource();
+				source.buffer = buffer;
+				source.connect(gain);
+				source.start(when, start, duration);
+				playback.sources.push(source);
+
+				let delay = (when - context.currentTime) * 1000;
+				playback.timers.push(setTimeout(() => {
+					for (let element of elements) element.classList.remove('current');
+					elements[index].classList.add('current');
+				}, delay));
+				when += duration + VOWEL_GAP;
+			}
+			playback.timers.push(setTimeout(() => this.stopVowel(),
+				(when - VOWEL_GAP - context.currentTime) * 1000));
+		}).catch(error => {
+			console.error('Could not play the vowel:', error);
+			if (this.vowelPlayback == playback) this.stopVowel();
+		});
+	}
+
+	stopVowel() {
+		let playback = this.vowelPlayback;
+		if (!playback) return;
+		this.vowelPlayback = null;
+		for (let source of playback.sources) source.stop();
+		for (let timer of playback.timers) clearTimeout(timer);
+		for (let element of playback.elements) element.classList.remove('current');
+		playback.dot.classList.remove('playing');
+		playback.onStop();
 	}
 
 	closeConstellation() {
 		clearTimeout(this.constellationCloseTimer);
+		this.stopVowel();
 		if (!this.constellation) return;
 		let {clip, element, dots, origin} = this.constellation;
 		this.constellation = null;
