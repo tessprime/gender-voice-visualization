@@ -2,6 +2,7 @@
 //! phonealign does through kalpy/Kaldi, for use in the browser
 //! (WebAssembly). See README.md.
 
+pub mod align;
 pub mod features;
 pub mod graph;
 pub mod kaldi_io;

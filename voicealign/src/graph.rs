@@ -248,10 +248,14 @@ pub fn compile(
         let arc = &phone_arcs[a];
         let context = [left, arc.phone, right];
         let topology = transitions.topology.for_phone(arc.phone);
-        // Units this one can lead into, with their entry costs.
+        // Units this one can lead into, with their entry costs: only those
+        // of the phone this unit assumed as its right context.
         let mut successors: Vec<(usize, f64)> = Vec::new();
         for &(b, between) in &following[a] {
             let next = &phone_arcs[b];
+            if next.phone != right {
+                continue;
+            }
             for (&(b2, l2, _), &u2) in unit_index.iter() {
                 if b2 == b && l2 == arc.phone {
                     successors.push((u2, between + next.cost));

@@ -21,7 +21,12 @@ Work in progress; see `docs/CURRENT.md` in the web app's repository.
 - **Graph compilation** (`lexicon.rs`, `graph.rs`): the alignment graph
   for a transcript, built directly. kalpy's alignment of the test clip is a
   path through it with the same score (to 5e-7).
-- Alignment (Viterbi): not yet.
+- **Alignment** (`align.rs`): Viterbi with beam pruning, as Kaldi's
+  gmm-align-compiled. On the test recording, the output (every frame's
+  transition id, phone and word times) is identical to kalpy's.
+
+`examples/compare_alignment.rs` runs the whole pipeline from a WAV file and
+compares with `reference/dump_alignment.py`'s output.
 
 ## Comparing with kalpy
 

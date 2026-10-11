@@ -105,7 +105,25 @@ binary format.
         (`gmm_align_compiled`) adds transition costs (scale 1.0, self-loops
         0.1) and scales acoustics by 0.1. Kaldi reports
         likelihood = -(graph cost + 0.1 · acoustic cost) / 0.1.
-- [ ] **4. Alignment**: Viterbi with beam 10, retry beam 40.
+- [x] **4. Alignment** (`src/align.rs`): Viterbi token passing with beam
+      pruning as Kaldi's FasterDecoder (beam 10, retry 40); arc cost =
+      lexicon + scaled transition + 0.1 × acoustic. Outputs Kaldi
+      (reordered) transition ids, the likelihood, and phone and word
+      segments (end times clipped to the recording's length, as kalpy).
+      `examples/compare_alignment.rs`, end to end from the WAV, on the test
+      clip vs kalpy (dither off): **2638/2638 transition ids identical, all
+      269 phones and 72 words identical**; likelihood -166465.70 vs
+      -166465.64. Time: features 17 ms, graph 3 ms, alignment 84 ms
+      (native).
+
+      **Bug found by this comparison:** the graph didn't make a triphone
+      unit lead only into units of the phone it assumed as its right
+      context, so the search could pick context variants freely and found
+      "better" paths kalpy's graph doesn't allow (likelihood -166287.6;
+      98.4% of frames with the same phone). kalpy's own path scored
+      identically in both graphs, which is why step 3's check missed it.
+      Rerunning kalpy with beams up to 200 (-166464.69) ruled out pruning
+      before the cause was found.
 - [ ] **5. Output**: word and phone times; compare with `phonealign`.
 
 ## Goal: voicemeasure, Praat's pitch and formant analysis in Rust
