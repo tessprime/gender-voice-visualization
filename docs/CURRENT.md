@@ -3,6 +3,72 @@
 What we're working on right now, kept up to date as work happens. The
 longer-term plan is in [ROADMAP.md](ROADMAP.md).
 
+## Goal: voicemeasure, Praat's pitch and formant analysis in Rust
+
+The fork is moving all processing into the browser. Praat (pitch and
+formants at each phone's midpoint, `textgrid-formants.praat`) must be
+replaced by code that runs there and produces the same numbers, since
+`stats.json` was built from Praat's measurements. `voicemeasure/` is a Rust
+crate (compilable to WASM) reimplementing the two analyses the app uses,
+from Praat's published documentation, not its GPL source. Praat 6.4.06 in
+the Docker image is the reference.
+
+- [x] **1. Reference harness.** `voicemeasure/reference/dump_tracks.praat`
+      dumps every formant and pitch frame from Praat; `examples/dump_tracks.rs`
+      writes voicemeasure's in the same format; `reference/compare.py`
+      compares them. Praat's frame layout follows its documented rule
+      (centred frames): formants every 6.25 ms with a 50 ms window, pitch
+      every 10 ms with a 40 ms window. `frames.rs` reproduces both exactly.
+- [x] **2. Formants:** `To Formant (burg): 0, 5, 5000, 0.025, 50`.
+      Resample to 10 kHz (FFT low-pass, then windowed sinc), pre-emphasis
+      from 50 Hz, Gaussian-like window (2 × 25 ms), Burg LPC of order 10,
+      polynomial roots → frequencies and bandwidths, drop those below 50 Hz
+      or above 4950 Hz. On the test clip (26 s, 4213 frames):
+      - frame times identical; same number of formants in 96.8% of frames;
+        median |difference| F1 0.11, F2 0.22, F3 0.38 Hz.
+      - **at vowel midpoints** (what the app uses; 97 vowels): median
+        |difference| F1 0.05, F2 0.09, F3 0.18 Hz; largest 4.5, 8.4,
+        10.1 Hz.
+      - larger differences are in near-silent frames (median −85 dB) with
+        very broad bandwidths (median 630 Hz), i.e. not real formants.
+
+      Which samples Praat's window covers isn't documented; of the
+      placements tried, `centre - N/2 + 1 ..= centre + N/2` matched best
+      (median F1 difference 0.11 Hz, vs 0.29-0.83 Hz for the others).
+
+      **On the 21 example clips** (`voicemeasure/reference/check_examples.py`;
+      each clip's audio decoded to one 16 kHz WAV that both tools analyse,
+      compared at its stored phone midpoints, 1475 vowels):
+
+      | | median | within 1 Hz | within 10 Hz | worst |
+      |---|---|---|---|---|
+      | F1 | 0.11 Hz | 93.2% | 99.1% | 382 Hz |
+      | F2 | 0.24 Hz | 83.3% | 98.2% | 879 Hz |
+      | F3 | 0.36 Hz | 75.0% | 96.4% | 1199 Hz |
+
+      For scale, today's Praat pipeline differs from the values stored in
+      the clips in 2021 by a median 3 / 6 / 9 Hz.
+
+      The large differences come from **very broad "formants"** (bandwidths
+      of 1000-7700 Hz): numerically fragile poles that tiny differences move
+      by hundreds of Hz, or make appear on one side only, which renumbers
+      every formant above them. 46 of the 698 frames around vowel midpoints
+      (6.6%) disagree by more than 20 Hz or in formant count.
+
+      **Effect on what the app shows** (running `resonance.py` on Praat's
+      vs voicemeasure's formants, everything else identical): clip median
+      resonance differs by a median 0.12 percentage points, at most 2.2
+      (`chuck`, 31.4% vs 33.6%). Per vowel (1288): median 0.018 points; 11
+      vowels differ by more than 1 point, 3 by more than 5, and 1 (in
+      `wina`) by 100 points (a renumbered vowel whose resonance is clamped
+      to the opposite end).
+- [ ] **3. Pitch:** *Next.* `To Pitch: 0, 75, 600` (autocorrelation method,
+      Boersma 1993): candidates per frame, then a Viterbi path with
+      Praat's default costs.
+- [ ] **4. Measurements at phone midpoints**, linear interpolation as
+      `Get value at time ... Hertz Linear`; compare with Praat on the test
+      clip and the example clips, then on per-clip resonance and pitch.
+
 ## Goal: harden `serve.py` for a small real deployment
 
 A friend may host the app from the Docker image. `serve.py` began as a dev
@@ -230,6 +296,18 @@ Test clip: `rec/3306064823` (26 s, the rainbow passage). Its TextGrid from
 - **2026-10-11: kalpy's TextGrid export labels silence `<eps>`**, where
   `mfa align` writes `""`. The frontend detects silence by the empty label,
   so phonealign writes its own TextGrids in `mfa align`'s format.
+- **2026-10-11: Praat 6.4.06 intermittently fails to create output
+  files** ("Cannot create file ... this is a folder, not a file"), ~9% of
+  runs (18 of 200), and succeeds when rerun. `check_examples.py` retries up
+  to three times. Not the bind mount: it fails as often with all files
+  inside the container. `strace` shows no failing syscall: failed and
+  successful runs make the same `newfstatat(path) = ENOENT` check, and
+  failed runs then report the error without ever calling `openat`.
+  Likely a Praat bug that reads the stat result even when stat failed.
+  Pre-creating the formant output file cut failures to 4 of 200; untested
+  whether pre-creating the pitch file too removes the rest. The app's own
+  Praat script writes no files, so it isn't affected. See the roadmap's
+  open items for follow-up.
 - **Lexicon caching in `align_one`** keys the compiled FSTs by the
   dictionary file's name (`extracted_models/dictionary/<stem>`), reusing
   them unless `--clean`. Our per-request dictionaries are all named

@@ -220,4 +220,9 @@ From earlier work, roughly by priority:
       *empty*; it's inverted.
 - [ ] Report MFA's 1 s queue polling upstream (the long-lived aligner is
       in item 3).
+- [ ] Praat 6.4.06 intermittently fails to create files ("this is a
+      folder, not a file") with no failing syscall; diagnosis in
+      `docs/CURRENT.md`. Before reporting it upstream: confirm whether
+      pre-creating every output file avoids it, and check whether a current
+      Praat release still has it. Low priority, since we're replacing Praat.
 - [ ] Constellation on touch screens (no hover).

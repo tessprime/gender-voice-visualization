@@ -1,0 +1,12 @@
+[package]
+name = "voicemeasure"
+version = "0.0.1"
+edition = "2021"
+description = "Pitch and formant analysis matching Praat's, for measuring voices in the browser"
+publish = false
+
+[dependencies]
+rustfft = "6"
+
+[dev-dependencies]
+hound = "3"
