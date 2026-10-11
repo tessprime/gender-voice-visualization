@@ -3,6 +3,7 @@ import random
 import sys
 
 from . import phones, preprocessing, resonance
+from .preprocessing import ProcessingError
 from .settings import settings
 
 # Formant weights for resonance, fitted by corpusanalysis.py.
@@ -36,6 +37,10 @@ def analyze(uploaded_file, transcript, aligner=None):
 	tmp_dir = settings['recordings'] + id
 
 	praat_output = preprocessing.process(uploaded_file, transcript, tmp_dir, aligner)
+	if praat_output is None:
+		raise ProcessingError(
+			"The recording couldn't be matched to the transcript. Check that "
+			"the transcript matches what was said and that the recording isn't cut off.")
 
 	data = phones.parse(praat_output)
 	resonance.compute_resonance(data, WEIGHTS)

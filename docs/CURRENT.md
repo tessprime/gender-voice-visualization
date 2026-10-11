@@ -3,7 +3,39 @@
 What we're working on right now, kept up to date as work happens. The
 longer-term plan is in [ROADMAP.md](ROADMAP.md).
 
-## Goal: phonealign, a fast replacement for `mfa align`
+## Goal: harden `serve.py` for a small real deployment
+
+A friend may host the app from the Docker image. `serve.py` began as a dev
+server, so make it safe and robust enough for that before packaging it.
+
+- [x] **Concurrency.** `ThreadingHTTPServer`, with uploads serialized by a
+      lock (the aligner and MFA's working directory aren't safe to share).
+      Page loads during an upload: 2-12 ms (were ~2 s). Three simultaneous
+      uploads all succeed, processed in turn (2.0, 3.7, 5.4 s).
+- [x] **Non-root user.** The image runs as its `ubuntu` user (uid 1000).
+      The `mfa align` fallback still works (it used to drop to `nobody`).
+- [x] **Error responses without internals.** 422 with a user-facing message
+      when the recording can't be read as audio or matched to the
+      transcript; 400 for malformed requests; 500 "Processing failed" for
+      bugs. Each carries a random reference that's also in the server log,
+      next to the full error.
+- [x] **Request limits.** Uploads over 25 MB get 413, no Content-Length 411.
+      Connections idle for 60 s mid-request are dropped; a stalled request
+      doesn't block others.
+- [x] **Remove debug output.** No more environment dump at startup or
+      per-request filename prints.
+- [x] **`X-Content-Type-Options: nosniff`** on every response.
+
+Not yet: the frontend still shows its generic alert for every failure;
+showing the server's message is part of the roadmap's JSON-errors item.
+
+Later: check uploads are audio before ffmpeg parses them; the pre-existing
+`innerHTML` use of clip titles and transcripts in the frontend (a crafted
+clip file can run script); a self-contained image to give to the host
+(the current one bind-mounts the source); HTTPS in front of it, which
+in-browser recording requires.
+
+## Done: phonealign, a fast replacement for `mfa align`
 
 Align one recording to its transcript in well under a second by keeping
 the model loaded and calling Kaldi (via `kalpy`) directly, producing the

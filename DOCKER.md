@@ -29,9 +29,16 @@ runs reuse the cached image. You only need to rebuild after changing the
 
 - `serve.py` loads [phonealign](phonealign/README.md) at startup (a few
   seconds) and processes uploads itself, in ~2-2.5 s for a 25 s recording.
-  Each upload logs its timing (`clip <id> processed in ...`). If phonealign
-  fails to load, the log says so and uploads fall back to `backend.cgi`,
-  which runs `mfa align` per request (~8-10 s).
+  Each upload logs its timing (`[<reference>] clip <id> processed in ...`).
+  If phonealign fails to load, the log says so and uploads fall back to
+  `backend.cgi`, which runs `mfa align` per request (~8-10 s).
+- Pages load in parallel, but uploads are processed one at a time (the log
+  shows how long each waited). Uploads are limited to 25 MB.
+- Failed uploads get a short message with a reference (e.g. `reference
+  3b0be908`); search the log for it to see the full error. 422 means the
+  recording itself was the problem (unreadable, or doesn't match the
+  transcript), 500 a bug.
+- The container runs as the image's `ubuntu` user (uid 1000), not root.
 - Uploads are processed in `/rec` inside the container, which is mounted from
   `./rec` in your checkout. Each clip's directory is deleted as soon as it's
   processed, successful or not, since it holds the user's recording. To keep
@@ -43,9 +50,9 @@ runs reuse the cached image. You only need to rebuild after changing the
   `backend.cgi` also have `mfa_logs/` (MFA's per-step logs, e.g.
   `alignment/log/align.1.log`) and an `align.sh` to rerun alignment by hand:
   `docker compose exec web bash -c 'cd /rec/<id> && ./align.sh'`.
-- `./rec` must be world-writable because the CGI runs as `nobody`.
-  `docker-dev.sh` handles this. With compose, run
-  `mkdir -p rec && chmod a+rwx rec` once.
+- `./rec` must be writable by uid 1000. If that's your user, it already is;
+  otherwise make it world-writable. `docker-dev.sh` does this; with compose,
+  run `mkdir -p rec && chmod a+rwx rec` once.
 - Request logging (`logs` in `settings.json`) is off in the container because
   the log directory doesn't exist. Logging also needs the non-public
   `countries.mmdb` GeoIP file.

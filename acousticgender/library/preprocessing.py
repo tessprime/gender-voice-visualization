@@ -7,6 +7,10 @@ settings = settings_module.settings
 
 mfa_root = os.environ.get('MFA_ROOT_DIR', os.path.expanduser('~/Documents/MFA'))
 
+class ProcessingError(Exception):
+	"""An expected failure caused by the recording itself (as opposed to a
+	bug); the message is meant for the user."""
+
 # See mfa_patches/sitecustomize.py.
 mfa_patches = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mfa_patches')
 
@@ -115,14 +119,17 @@ def _process(uploaded_file, transcript, tmp_dir, aligner):
 	os.mkdir(corpus_dir)
 	os.mkdir(output_dir)
 
-	subprocess.check_output([
-		'ffmpeg' , 
-		'-i'     , clean_file,
-		'-acodec', 'pcm_s16le',
-		'-ac'    , '1',
-		'-ar'    , '16000',
-		corpus_dir + '/recording.wav'
-	])
+	try:
+		subprocess.check_output([
+			'ffmpeg' ,
+			'-i'     , clean_file,
+			'-acodec', 'pcm_s16le',
+			'-ac'    , '1',
+			'-ar'    , '16000',
+			corpus_dir + '/recording.wav'
+		])
+	except subprocess.CalledProcessError:
+		raise ProcessingError("The upload couldn't be read as audio.")
 
 	subprocess.run(['chmod', '777', '-R', tmp_dir])
 

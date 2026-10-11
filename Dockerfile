@@ -49,6 +49,12 @@ RUN mkdir -p /rec \
 # cache into site-packages; that fails as `nobody`.
 ENV NUMBA_CACHE_DIR=/tmp/numba-cache
 
+# Don't run as root. The base image's `ubuntu` user has uid 1000, which on
+# most single-user Linux machines matches the host user, so files written
+# into the bind-mounted checkout (rec/, index.html from build.cgi) belong to
+# them.
+USER ubuntu
+
 WORKDIR /app
 EXPOSE 8000
 CMD ["python3", "-u", "serve.py"]
