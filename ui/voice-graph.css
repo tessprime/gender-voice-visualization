@@ -106,6 +106,75 @@ voice-graph-2d > .overlay > .marker.playing{
 	border: 2px solid yellow;
 }
 
+/* Vowel constellation: see openConstellation() in voice-graph.js. */
+voice-graph-2d > .overlay.constellation-open > .marker:not(.constellation-origin) {
+	opacity: .3;
+}
+voice-graph-2d > .overlay > .marker.constellation-origin {
+	z-index: calc(var(--voice-graph-z-index) + 5);
+}
+.constellation {
+	position: absolute;
+	top: 0px;
+	left: 0px;
+	z-index: calc(var(--voice-graph-z-index) + 3);
+	transition: opacity .25s;
+}
+.constellation.closing {
+	opacity: 0;
+	pointer-events: none;
+}
+.constellation > .vowel-dot,
+.constellation > .vowel-instance {
+	position: absolute;
+	border-radius: 50%;
+	background: var(--clip-color);
+	transition: transform .25s ease-out, opacity .25s;
+}
+.constellation > .vowel-dot {
+	height: 1em;
+	width: 1em;
+	top: -.5em;
+	left: -.5em;
+	border: .1em solid white;
+	box-sizing: border-box;
+	z-index: 2;
+}
+.constellation > .vowel-dot:hover {
+	border-color: yellow;
+	z-index: 3;
+}
+/* Labels overlap where vowels cluster; make the hovered one readable. */
+.constellation > .vowel-dot:hover > .vowel-label {
+	font-weight: bold;
+	background: rgba(0,0,0,.75);
+	padding: 0px .3em;
+	border-radius: 3px;
+}
+.constellation > .vowel-dot > .vowel-label {
+	position: absolute;
+	bottom: 1.1em;
+	left: 50%;
+	transform: translateX(-50%);
+	white-space: nowrap;
+	font-size: small;
+	color: white;
+	pointer-events: none;
+	text-shadow: rgba(0,0,0,.6) 1px 1px, rgba(0,0,0,.6) -1px -1px, rgba(0,0,0,.6) 1px -1px, rgba(0,0,0,.6) -1px 1px;
+}
+.constellation > .vowel-instance {
+	height: .5em;
+	width: .5em;
+	top: -.25em;
+	left: -.25em;
+	opacity: 0;
+	pointer-events: none;
+	z-index: 1;
+}
+.constellation > .vowel-instance.shown {
+	opacity: .7;
+}
+
 voice-graph-2d > .overlay > .x.hairline {
 	content: '';
 	border-left: .1em dotted black;

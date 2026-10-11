@@ -1,5 +1,42 @@
 
 
+// Labels for each vowel (stress digits removed; see phoneClass() in
+// util.js). Unstressed AH0 is the schwa, which sounds unlike stressed AH,
+// so it gets its own group.
+const VOWEL_LABELS = {
+	AA: 'AA (father)', AE: 'AE (cat)',   AH: 'AH (but)',   SCHWA: 'ə (about)',
+	AO: 'AO (thought)', AW: 'AW (cow)',  AY: 'AY (my)',    EH: 'EH (bed)',
+	ER: 'ER (bird)',   EY: 'EY (say)',   IH: 'IH (sit)',   IY: 'IY (see)',
+	OW: 'OW (go)',     OY: 'OY (boy)',   UH: 'UH (book)',  UW: 'UW (too)',
+};
+
+// Group a clip's vowel phones by vowel. Each group has the vowel's average
+// position and the positions of every instance. Only phones with both a
+// pitch and a resonance count, and outliers are skipped, as for the
+// clip's own median.
+function vowelGroups(clip) {
+	let groups = {};
+	for (let phone of clip.phones || []) {
+		if (phoneClass(phone.phoneme) != 'vowel' || phone.outlier) continue;
+		if (!phone.F || !phone.F[0] || phone.resonance == null) continue;
+		let key = phone.phoneme == 'AH0' ? 'SCHWA' : phone.phoneme.replace(/\d/g, '');
+
+		groups[key] = groups[key] || {key: key, label: VOWEL_LABELS[key], instances: []};
+		groups[key].instances.push({
+			pitch: pitchPercent(phone.F[0]),
+			resonance: phone.resonance,
+			hz: phone.F[0],
+		});
+	}
+	for (let group of Object.values(groups)) {
+		let mean = values => values.reduce((a, b) => a + b, 0) / values.length;
+		group.hz = mean(group.instances.map(i => i.hz));
+		group.pitch = pitchPercent(group.hz);
+		group.resonance = mean(group.instances.map(i => i.resonance));
+	}
+	return Object.values(groups);
+}
+
 class VoiceGraph {
 
 	constructor(element) {
@@ -79,6 +116,7 @@ class VoiceGraph {
 			for (let marker of $$('.marker')) {
 				this.update(marker);
 			}
+			this.closeConstellation();
 		});
 		globalState.render(['clips'], current => {
 			let orphanedMarkers = Array.from($$('.marker'));
@@ -102,6 +140,10 @@ class VoiceGraph {
 					clip.marker.addEventListener('mouseenter', evt => {
 						globalState.set('previewClip', clip);
 						for (let marker of $$('.marker')) this.update(marker);
+						this.openConstellation(clip);
+					});
+					clip.marker.addEventListener('mouseleave', evt => {
+						this.scheduleConstellationClose();
 					});
 					this.update(clip.marker);
 				} else {
@@ -184,6 +226,100 @@ class VoiceGraph {
 
 			this.update(playingClip.marker);
 		});
+	}
+
+	// The CSS transform that places a dot at the given pitch and resonance
+	// (both 0-1) within the overlay, as update() does for markers.
+	position(pitch, resonance) {
+		let overlay = this.element.querySelector('.overlay');
+		return `translate(${Math.round(overlay.clientWidth * resonance)}px, `
+			+ `${Math.round(overlay.clientHeight * (1 - pitch))}px)`;
+	}
+
+	// Fan a clip's marker out into one dot per vowel, at that vowel's
+	// average position. Hovering a vowel dot fans it out into each instance.
+	openConstellation(clip) {
+		clearTimeout(this.constellationCloseTimer);
+		if (this.constellation && this.constellation.clip == clip) return;
+		this.closeConstellation();
+
+		let groups = vowelGroups(clip);
+		if (!groups.length) return;
+
+		let overlay = this.element.querySelector('.overlay');
+		let origin = this.position(
+			parseFloat(clip.marker.getAttribute('data-pitch')),
+			parseFloat(clip.marker.getAttribute('data-resonance'))
+		);
+		let container = div({'class': 'constellation'});
+		container.style.setProperty('--clip-color', clip.color || 'black');
+		container.addEventListener('mouseenter', () => clearTimeout(this.constellationCloseTimer));
+		container.addEventListener('mouseleave', () => this.scheduleConstellationClose());
+
+		// Every dot starts at the clip marker and moves to its target once
+		// it's in the DOM, so the constellation visibly expands.
+		let dots = [];
+		for (let group of groups) {
+			let groupPosition = this.position(group.pitch, group.resonance);
+
+			let instances = group.instances.map(instance => {
+				let dot = div({'class': 'vowel-instance'});
+				dot.style.transform = groupPosition;
+				container.appendChild(dot);
+				return {element: dot, target: this.position(instance.pitch, instance.resonance)};
+			});
+
+			let vowelDot = div({
+				'class': 'vowel-dot',
+				'title': `${group.label}: average of ${group.instances.length}, `
+					+ `${Math.round(group.hz)}Hz, ${Math.round(group.resonance * 100)}% resonance`,
+			}, [span(group.label, {'class': 'vowel-label'})]);
+			vowelDot.style.transform = origin;
+			vowelDot.addEventListener('mouseenter', () => {
+				for (let instance of instances) {
+					instance.element.style.transform = instance.target;
+					instance.element.classList.add('shown');
+				}
+			});
+			vowelDot.addEventListener('mouseleave', () => {
+				for (let instance of instances) {
+					instance.element.style.transform = groupPosition;
+					instance.element.classList.remove('shown');
+				}
+			});
+			container.appendChild(vowelDot);
+			dots.push({element: vowelDot, target: groupPosition});
+		}
+
+		overlay.appendChild(container);
+		overlay.classList.add('constellation-open');
+		clip.marker.classList.add('constellation-origin');
+		container.offsetWidth;  // Apply the starting positions before animating.
+		for (let dot of dots) dot.element.style.transform = dot.target;
+
+		this.constellation = {clip: clip, element: container, dots: dots, origin: origin};
+	}
+
+	// Close after a delay, so the pointer can cross the gap between the
+	// clip marker and the constellation's dots.
+	scheduleConstellationClose() {
+		clearTimeout(this.constellationCloseTimer);
+		this.constellationCloseTimer = setTimeout(() => this.closeConstellation(), 800);
+	}
+
+	closeConstellation() {
+		clearTimeout(this.constellationCloseTimer);
+		if (!this.constellation) return;
+		let {clip, element, dots, origin} = this.constellation;
+		this.constellation = null;
+
+		this.element.querySelector('.overlay').classList.remove('constellation-open');
+		if (clip.marker) clip.marker.classList.remove('constellation-origin');
+
+		// Collapse back into the clip marker, then remove.
+		element.classList.add('closing');
+		for (let dot of dots) dot.element.style.transform = origin;
+		setTimeout(() => element.remove(), 250);
 	}
 
 	getClipById(id) {
