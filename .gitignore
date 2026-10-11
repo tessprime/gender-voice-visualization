@@ -5,3 +5,5 @@ settings.json
 countries.mmdb
 .directory
 rec/
+junk/
+.mypy_cache/
