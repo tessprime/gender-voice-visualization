@@ -234,10 +234,11 @@
 				return text.trim().length < 2 ? {} : JSON.parse(text);
 			});
 
-			// Analyse in the browser; if that isn't possible (e.g. the models
-			// aren't set up, or an old browser), on the server.
+			// Analyse in the browser; if that fails and there's a server that
+			// can do it (not in the static build), on the server.
 			analyzeInBrowser(formData.get('recording'), transcriptText, text => { loadingMessage.textContent = text; })
 			.catch(error => {
+				if (!serverAnalysisAvailable) throw error;
 				console.warn('In-browser analysis failed, using the server:', error);
 				return analyzeOnServer();
 			}).then(data => {
@@ -255,11 +256,12 @@
 
 			}).catch(error => {
 				console.error('Failed to process recording:', error);
+				const reason = error && error.message && !/^\d+$/.test(error.message) ? ` (${error.message})` : '';
 				alert(
-					"Sorry, we weren't able to process your recording. " +
+					`Sorry, we weren't able to process your recording${reason}. ` +
 					"Make sure to speak clearly and ensure " +
 					"that your transcript matches the audio. " +
-					"For increased chance of success," +
+					"For increased chance of success, " +
 					"try using short clips with a 1-second period of silence."
 				);
 				loadingMessage.textContent = defaultMessage;

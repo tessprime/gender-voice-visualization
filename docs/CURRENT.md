@@ -53,6 +53,23 @@ WebAssembly. Still needed to replace the server:
       measuring (not aligning, where it caused failures); or keep it off
       and accept the shift.
 
+## Goal: a static-only build
+
+- [x] `tools/build_static.py` writes `dist/` (54 files, ~133 MB): the page
+      in production mode with no server fallback (`serverAnalysisAvailable
+      = false`, a template flag; `build.cgi` sets it true), plus the worker,
+      WASM, models, dictionaries and example clips. See docs/STATIC.md.
+- [x] Tested served by plain `python3 -m http.server`: page and 7 example
+      clips load; a recording is analysed (3.1 s first clip, including model
+      loading); a bad clip shows the reason; no non-GET requests, no failed
+      responses, no page errors.
+- [x] Error alerts now include the analysis's reason (e.g. "the recording
+      couldn't be matched to the transcript").
+- [x] Removed a stray `<link href="style.css">` from the embedded "bright"
+      icon (Inkscape leftover), which caused a 404 on every page load.
+- [ ] Decide noise reduction (see above), then consider retiring the
+      server path (`serve.py` analysis, `backend.cgi`, the 3.5 GB image).
+
 ## Goal: voicealign, phonealign's forced alignment in Rust
 
 Port what `phonealign` does through kalpy/Kaldi to a Rust crate,

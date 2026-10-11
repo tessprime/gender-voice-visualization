@@ -9,3 +9,4 @@ junk/
 .mypy_cache/
 ui/wasm/
 models/
+dist/

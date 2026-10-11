@@ -22,6 +22,10 @@
 
 		<script>
 			{% include 'svg-icons.js' %}
+			// Whether backend.cgi can analyse recordings if the in-browser
+			// analysis fails: true when served by serve.py / backend.cgi,
+			// false for the static build (tools/build_static.py).
+			const serverAnalysisAvailable = {{ 'true' if server_analysis else 'false' }};
 		</script>
 		{% if dev %}
 			<script src="./ui/dom.js"></script>
