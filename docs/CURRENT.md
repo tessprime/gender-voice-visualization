@@ -37,11 +37,23 @@ binary format.
       At float32 rounding level (Kaldi computes in float, we in double);
       the largest are probably near-silent frames, where the log of a tiny
       energy amplifies rounding. Step 5 will show whether they matter.
-- [ ] **2. Model loading**: transition model and diagonal GMMs
-      (`final.alimdl`), decision tree (`tree`). *Next.* `final.alimdl` is
-      `<TransitionModel>` (`<Topology>`, `<Triples>`, `<LogProbs>`) then
-      the GMMs (`<DIMENSION>`, `<NUMPDFS>` = 5912, each `<DiagGMM>` with
-      `<GCONSTS>`, `<WEIGHTS>`, `<MEANS_INVVARS>`, `<INV_VARS>`).
+- [x] **2. Model loading**: transition model and diagonal GMMs
+      (`src/model.rs`, from `final.alimdl`), decision tree (`src/tree.rs`,
+      from `tree`). `reference/dump_model.py` dumps kalpy's view;
+      `examples/compare_model.rs` compares:
+      - counts identical: 12165 transition ids, 6092 transition states,
+        5912 pdfs, 40 dims, 150000 Gaussians; tree width 3, central 1.
+      - all 12165 transition ids: same pdf, phone, transition state,
+        self-loop and final flags; log-probabilities exactly equal.
+      - GMM log-likelihoods on kalpy's features (2000 random frame/pdf
+        pairs): median |difference| 5e-6, max 3e-5 (values around -70).
+      - tree: over all 1.12M triphone contexts, every one of the 5912 pdfs
+        is reached by exactly the (phone, pdf class) pairs kalpy's
+        `GetPdfInfo` lists.
+
+      Loading takes 231 ms natively. Format details learned: Kaldi writes
+      unsigned integers with a negative size byte (-4); the tree's event
+      map follows a `ToPdf` token.
 - [ ] **3. Graph compilation**: lexicon + transcript → alignment graph,
       as kalpy's `TrainingGraphCompiler`.
 - [ ] **4. Alignment**: Viterbi with beam 10, retry beam 40.

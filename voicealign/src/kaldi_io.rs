@@ -85,15 +85,19 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 
+    /// An integer: a size byte (negative for unsigned types), then the value.
     pub fn int(&mut self) -> Result<i64> {
-        let size = self.take(1)?[0] as usize;
-        let b = self.take(size)?;
-        Ok(match size {
+        let size_byte = self.take(1)?[0] as i8;
+        let b = self.take(size_byte.unsigned_abs() as usize)?;
+        Ok(match size_byte {
             1 => b[0] as i8 as i64,
+            -1 => b[0] as i64,
             2 => i16::from_le_bytes([b[0], b[1]]) as i64,
+            -2 => u16::from_le_bytes([b[0], b[1]]) as i64,
             4 => i32::from_le_bytes(b.try_into().unwrap()) as i64,
-            8 => i64::from_le_bytes(b.try_into().unwrap()),
-            _ => return Err(Error(format!("bad integer size {}", size))),
+            -4 => u32::from_le_bytes(b.try_into().unwrap()) as i64,
+            8 | -8 => i64::from_le_bytes(b.try_into().unwrap()),
+            _ => return Err(Error(format!("bad integer size {}", size_byte))),
         })
     }
 

@@ -4,3 +4,5 @@
 
 pub mod features;
 pub mod kaldi_io;
+pub mod model;
+pub mod tree;
