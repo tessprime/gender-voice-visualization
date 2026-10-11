@@ -17,6 +17,13 @@ class MyHandler(CGIHTTPRequestHandler):
             return True
 
         return False
+
+    def end_headers(self):
+        # Without Cache-Control, browsers cache files heuristically and can
+        # keep serving an old ui/*.js next to a newly edited one. Make them
+        # revalidate every time (unchanged files just get a 304).
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
 print("hello!")
 print(os.environ)
 sys.stdout.flush()
