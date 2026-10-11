@@ -18,7 +18,10 @@ Work in progress; see `docs/CURRENT.md` in the web app's repository.
   diagonal GMMs and the decision tree, read from Kaldi's binary files.
   Identical to kalpy's view of them; GMM log-likelihoods within float32
   rounding.
-- Graph compilation, alignment: not yet.
+- **Graph compilation** (`lexicon.rs`, `graph.rs`): the alignment graph
+  for a transcript, built directly. kalpy's alignment of the test clip is a
+  path through it with the same score (to 5e-7).
+- Alignment (Viterbi): not yet.
 
 ## Comparing with kalpy
 

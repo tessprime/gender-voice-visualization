@@ -54,8 +54,57 @@ binary format.
       Loading takes 231 ms natively. Format details learned: Kaldi writes
       unsigned integers with a negative size byte (-4); the tree's event
       map follows a `ToPdf` token.
-- [ ] **3. Graph compilation**: lexicon + transcript → alignment graph,
-      as kalpy's `TrainingGraphCompiler`.
+- [x] **3. Graph compilation** (`src/lexicon.rs`, `src/graph.rs`). Built
+      directly rather than by FST composition: phone graph (words in
+      order, pronunciation alternatives, optional silence, kalpy's lexicon
+      costs) → triphone units (each phone with every possible left/right
+      neighbour) → HMM-state nodes with transition ids. 72 words: 852
+      units, 2870 nodes, 8883 arcs, built in 3.5 ms. Determinization and
+      weight pushing, which Kaldi applies, don't change path costs here.
+
+      Checked with `examples/check_graph.rs` against kalpy's alignment of
+      the test clip (`reference/dump_alignment.py`, dither off): kalpy's
+      transition-id sequence is a path through the graph, and that path's
+      score is **-166465.73 vs kalpy's -166465.64** (difference 5e-7
+      relative; float32 acoustic scores).
+
+      Two Kaldi conventions found on the way:
+      - **Reordered labels**: kalpy labels a stay in an HMM state with the
+        forward transition first, then the self-loops (Kaldi's default
+        `reorder`). Same frame-to-state assignment; `from_reordered` /
+        `to_reordered` in model.rs convert.
+      - **Scaled transitions** (`GetScaledTransitionLogProb`): with
+        transition scale 1.0 and self-loop scale 0.1, a forward transition
+        costs 0.1·log(1 - p_self) + 1.0·log(p / (1 - p_self)). Charging
+        log p at scale 1.0 overcounted by ~495 (score off by ~4950).
+
+      Notes from researching kalpy's compiler: what kalpy does (`kalpy/fstext/lexicon.py` `create_fsts` /
+      `add_pronunciation`, `kalpy/decoder/training_graphs.py`):
+      - **Lexicon L** (tropical weights, costs = -log p): states 0 start,
+        1 "no silence before", 2 "silence before". Start→1 `<eps>`
+        (-log(1 - 0.18)); start→2 `sil` (-log 0.18). Per pronunciation
+        p1..pn of word w: 1→… `p1:w` (pron cost + non-silence-before
+        cost), 2→… `p1:w` (pron cost + silence-before cost), then p2..pn
+        with `<eps>` output; from the last state, the silence
+        disambiguation symbol → 1 (non-silence-following cost) or `sil` →
+        2 (silence-following cost). Finals: state 2 -log(0.99), state 1
+        -log(0.01). Costs: pron = |log p| with p floored at 0.01;
+        dictionary columns are p, silence-after p, silence-before
+        correction, non-silence-before correction (correction cost =
+        -log c; missing silence-after p falls back to 0.18).
+        `disambiguation=False`, so no per-word disambiguation symbols.
+      - **Compiler**: kalpy's Python wraps Kaldi's C++
+        `TrainingGraphCompiler` (`CompileGraphsFromText`), defaults
+        transition_scale 0.0 and self_loop_scale 0.0 here (check what
+        `KalpyAligner` passes). Kaldi's steps: compose L with the linear
+        word acceptor, compose with the context FST (triphones, width 3,
+        central 1), compose with H (HMMs from tree + transition model),
+        determinize in the log semiring, add self-loops.
+      - `KalpyAligner` compiles graphs with transition and self-loop
+        scales 0, so graphs hold only lexicon costs; the aligner
+        (`gmm_align_compiled`) adds transition costs (scale 1.0, self-loops
+        0.1) and scales acoustics by 0.1. Kaldi reports
+        likelihood = -(graph cost + 0.1 · acoustic cost) / 0.1.
 - [ ] **4. Alignment**: Viterbi with beam 10, retry beam 40.
 - [ ] **5. Output**: word and phone times; compare with `phonealign`.
 

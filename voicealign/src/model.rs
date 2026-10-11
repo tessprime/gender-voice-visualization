@@ -203,6 +203,75 @@ impl TransitionModel {
         self.log_probs[id]
     }
 
+    /// log(1 - self-loop probability) of a transition state (0 if it has
+    /// no self-loop).
+    pub fn non_self_loop_log_prob(&self, state: usize) -> f64 {
+        let t = self.tuples[state - 1];
+        let transitions = &self.topology.for_phone(t.phone)[t.hmm_state].transitions;
+        match (0..transitions.len()).map(|i| self.transition_id(state, i)).find(|&id| self.is_self_loop(id)) {
+            Some(id) => (1.0 - self.log_prob(id).exp()).ln(),
+            None => 0.0,
+        }
+    }
+
+    /// A transition's log-probability with self-loops and other transitions
+    /// scaled separately, as Kaldi's GetScaledTransitionLogProb: a forward
+    /// transition is "leave the state" (scaled like self-loops) followed by
+    /// "go this way" (scaled as transitions).
+    pub fn scaled_log_prob(&self, id: usize, transition_scale: f64, self_loop_scale: f64) -> f64 {
+        if transition_scale == self_loop_scale {
+            return self.log_prob(id) * transition_scale;
+        }
+        if self.is_self_loop(id) {
+            return self_loop_scale * self.log_prob(id);
+        }
+        let leave = self.non_self_loop_log_prob(self.transition_state(id));
+        self_loop_scale * leave + transition_scale * (self.log_prob(id) - leave)
+    }
+
+    /// Convert an alignment from Kaldi's "reordered" labelling to the
+    /// natural one. With reordering (Kaldi's default for training graphs),
+    /// a stay in an HMM state is labelled with its forward transition first
+    /// and then its self-loops; naturally, the self-loops come first. Both
+    /// assign the same HMM state, and so the same pdf, to each frame.
+    pub fn from_reordered(&self, alignment: &[usize]) -> Vec<usize> {
+        let mut out = alignment.to_vec();
+        let mut i = 0;
+        while i < out.len() {
+            let id = out[i];
+            let state = self.transition_state(id);
+            let mut j = i + 1;
+            if !self.is_self_loop(id) {
+                while j < out.len() && self.is_self_loop(out[j]) && self.transition_state(out[j]) == state {
+                    j += 1;
+                }
+                out[i..j].rotate_left(1); // forward transition after the self-loops
+            }
+            i = j;
+        }
+        out
+    }
+
+    /// The inverse of `from_reordered`.
+    pub fn to_reordered(&self, alignment: &[usize]) -> Vec<usize> {
+        let mut out = alignment.to_vec();
+        let mut i = 0;
+        while i < out.len() {
+            let state = self.transition_state(out[i]);
+            let mut j = i;
+            while j < out.len() && self.is_self_loop(out[j]) && self.transition_state(out[j]) == state {
+                j += 1;
+            }
+            if j > i && j < out.len() && !self.is_self_loop(out[j]) && self.transition_state(out[j]) == state {
+                out[i..=j].rotate_right(1); // forward transition before the self-loops
+                i = j + 1;
+            } else {
+                i = j.max(i + 1);
+            }
+        }
+        out
+    }
+
     /// The transition state for a phone, HMM state and pdfs, if the model
     /// has one (TransitionModel::TupleToTransitionState).
     pub fn state_of(&self, tuple: &Tuple) -> Option<usize> {

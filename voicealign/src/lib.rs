@@ -3,6 +3,8 @@
 //! (WebAssembly). See README.md.
 
 pub mod features;
+pub mod graph;
 pub mod kaldi_io;
+pub mod lexicon;
 pub mod model;
 pub mod tree;
