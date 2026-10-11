@@ -24,6 +24,25 @@ function last(list) {
 }
 
 
+// 'vowel', 'sonorant' or 'obstruent' for an ARPABET phoneme, or null for
+// silence and unknown labels. Keep in sync with phone_class() in
+// acousticgender/library/phones.py, which explains the classes.
+const PHONE_CLASSES = {
+	vowel: ['AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'EH', 'ER', 'EY', 'IH', 'IY',
+	        'OW', 'OY', 'UH', 'UW'],
+	sonorant: ['M', 'N', 'NG', 'L', 'R', 'W', 'Y'],
+	obstruent: ['P', 'B', 'T', 'D', 'K', 'G', 'F', 'V', 'TH', 'DH', 'S', 'Z',
+	            'SH', 'ZH', 'HH', 'CH', 'JH'],
+};
+function phoneClass(phoneme) {
+	let base = (phoneme || '').replace(/\d/g, '');
+	for (let [name, phonemes] of Object.entries(PHONE_CLASSES)) {
+		if (phonemes.includes(base)) return name;
+	}
+	return null;
+}
+
+
 function pitchPercent(pitch) {
 	return clamp(0, 1, (pitch - 50) / 250);
 }

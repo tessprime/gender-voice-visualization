@@ -165,9 +165,7 @@ class VoiceGraph {
 				playingClip.marker.setAttribute('data-pitch', pitchPercent(playingClip.medianPitch) || .5);
 				playingClip.marker.setAttribute('data-resonance', playingClip.medianResonance || .5);
 			} else {
-				let isVowel = currentPhone.phoneme && Array.from(currentPhone.phoneme).filter(
-					value => ["A", "E", "I", "O", "U", "Y"].includes(value)
-				).length > 0;
+				let isVowel = phoneClass(currentPhone.phoneme) == 'vowel';
 
 				if (isVowel && currentPhone.hasOwnProperty('F_stdevs') && 
 					currentPhone.F_stdevs[0] &&  currentPhone.F_stdevs[1] && 
