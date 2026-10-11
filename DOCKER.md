@@ -14,7 +14,12 @@ docker compose up --build
 ./docker-dev.sh
 ```
 
-Then open <http://localhost:8000/>.
+Then open <http://localhost:8000/>. The port is published on loopback only,
+so other machines can't reach it, and `serve.py` only serves the page,
+`ui/` and `resources/` (plus uploads to `backend.cgi`). Everything else,
+including the recordings in `rec/`, `.git/` and `settings.json`, returns 404.
+To reach the server from another device, change `127.0.0.1:8000:8000` in
+`docker-compose.yml` (or `docker-dev.sh`), knowing it has no authentication.
 
 The first build downloads a few GB of conda packages and takes a while. Later
 runs reuse the cached image. You only need to rebuild after changing the

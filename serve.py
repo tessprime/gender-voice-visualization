@@ -3,9 +3,16 @@ import email.parser
 import email.policy
 import json
 import os
+import posixpath
 import sys
 import time
 import traceback
+import urllib.parse
+
+# Only these are served. The server's root is the whole checkout, which also
+# holds every uploaded recording (rec/), .git/, settings.json, etc.
+ALLOWED_FILES = {"/", "/index.html", "/manifest.json", "/sw.js", "/offline.html"}
+ALLOWED_DIRECTORIES = ("/ui/", "/resources/")
 
 # Load phonealign once, so each upload is aligned in this process instead
 # of running backend.cgi (which starts `mfa align` per request). If it can't
@@ -32,9 +39,35 @@ def parse_form(content_type, body):
         for part in message.iter_parts()
     }
 
+def request_path(raw_path):
+    """The path as it will be resolved: query removed, %-escapes decoded,
+    and "." / ".." applied, so /ui/../rec/ can't slip past the allowlist."""
+    path = urllib.parse.unquote(raw_path.split("?", 1)[0].split("#", 1)[0])
+    return posixpath.normpath(path) if path not in ("", "/") else "/"
+
+def is_allowed(raw_path):
+    path = request_path(raw_path)
+    return path in ALLOWED_FILES or (
+        path.startswith(ALLOWED_DIRECTORIES) and not path.endswith("/"))
+
 class MyHandler(CGIHTTPRequestHandler):
     # List of exact CGI filenames
     allowed_cgi = {"backend.cgi"}
+
+    def do_GET(self):
+        if not is_allowed(self.path):
+            return self.send_error(404)
+        super().do_GET()
+
+    def do_HEAD(self):
+        if not is_allowed(self.path):
+            return self.send_error(404)
+        super().do_HEAD()
+
+    def list_directory(self, path):
+        # Never list directories (e.g. /ui/), even within the allowlist.
+        self.send_error(404)
+        return None
 
     def is_cgi(self):
         # Extract file being requested
@@ -49,8 +82,9 @@ class MyHandler(CGIHTTPRequestHandler):
         return False
 
     def do_POST(self):
-        filename = self.path.split("?", 1)[0].rsplit("/", 1)[-1]
-        if aligner is None or filename != "backend.cgi":
+        if request_path(self.path) != "/backend.cgi":
+            return self.send_error(404)
+        if aligner is None:
             return super().do_POST()
 
         # Same work as backend.cgi, without its per-request process (and

@@ -10,4 +10,5 @@ mkdir -p rec
 chmod a+rwx rec
 
 docker build --network=host -t gvv-dev .
-exec docker run --rm -it -p 8000:8000 -v "$PWD":/app -v "$PWD/rec":/rec gvv-dev "$@"
+# Publish on loopback only: the server has no authentication.
+exec docker run --rm -it -p 127.0.0.1:8000:8000 -v "$PWD":/app -v "$PWD/rec":/rec gvv-dev "$@"

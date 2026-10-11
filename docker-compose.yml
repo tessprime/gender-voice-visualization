@@ -7,7 +7,9 @@ services:
       network: host
     image: gvv-dev
     ports:
-      - "8000:8000"
+      # Loopback only: the server has no authentication, and uploaded
+      # recordings are kept in ./rec.
+      - "127.0.0.1:8000:8000"
     volumes:
       # Mount the working tree so local changes are picked up without a rebuild.
       - .:/app
