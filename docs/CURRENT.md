@@ -67,6 +67,13 @@ WebAssembly. Still needed to replace the server:
       couldn't be matched to the transcript").
 - [x] Removed a stray `<link href="style.css">` from the embedded "bright"
       icon (Inkscape leftover), which caused a 404 on every page load.
+- [x] GitHub Pages deploy: `.github/workflows/pages.yml` builds and
+      publishes `dist/` on push to `master`. The model and dictionary now
+      come from MFA's GitHub releases (`tools/fetch_models.sh`), byte-for-byte
+      the same files as in the Docker image, so setup no longer needs Docker.
+- [ ] GitHub side (user): rename the fork to `gvv` (site at
+      `tessprime.github.io/gvv/`), set Settings → Pages → Source to "GitHub
+      Actions", push `master`. Not yet run on GitHub.
 - [ ] Decide noise reduction (see above), then consider retiring the
       server path (`serve.py` analysis, `backend.cgi`, the 3.5 GB image).
 

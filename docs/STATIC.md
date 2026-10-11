@@ -9,8 +9,8 @@ processing on the server.
 
 ```sh
 tools/setup_browser_analysis.sh   # once, and after changing voicealign/voicemeasure:
-                                  # builds the WASM modules and extracts the model
-                                  # (needs Rust's wasm32 target and the gvv-dev image)
+                                  # builds the WASM modules and downloads the model
+                                  # (needs Rust's wasm32 target)
 tools/build_static.py             # writes dist/ (or: tools/build_static.py OUT_DIR)
 ```
 
@@ -35,6 +35,20 @@ Upload `dist/` to any static web server or host. What matters:
   (CC BY 4.0) and the CMU Pronouncing Dictionary (BSD-style); the help
   page's credits attribute them. The app itself is AGPL-3.0: if you host a
   modified version, link its source code.
+
+## GitHub Pages
+
+`.github/workflows/pages.yml` builds `dist/` and publishes it to GitHub
+Pages on every push to `master` (or by hand from the Actions tab). The
+model and dictionary are downloaded from MFA's releases during the build
+(`tools/fetch_models.sh`) and cached between runs; they're part of the
+published site, never of the repository.
+
+One-time setup: in the repository's Settings → Pages, set Source to
+"GitHub Actions". A project site is served at
+`https://<user>.github.io/<repository>/`, so the repository's name is the
+path. The page loads everything by relative URL, so it works under a
+subpath.
 
 ## Differences from the server-backed app
 

@@ -1,0 +1,64 @@
+# Build the static site (tools/build_static.py) and publish it to GitHub
+# Pages. In the repository's Settings → Pages, set Source to "GitHub Actions".
+# The model files are downloaded during the build (tools/fetch_models.sh);
+# they end up in the published site but never in the repository.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust with the WebAssembly target
+        run: rustup target add wasm32-unknown-unknown
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            voicealign/target
+            voicemeasure/target
+          key: wasm-${{ hashFiles('voicealign/Cargo.lock', 'voicemeasure/Cargo.lock', 'voicealign/src/**', 'voicemeasure/src/**') }}
+          restore-keys: wasm-
+
+      - uses: actions/cache@v4
+        with:
+          path: models
+          key: models-${{ hashFiles('tools/fetch_models.sh') }}
+
+      - name: Build the WASM modules and download the models
+        run: tools/setup_browser_analysis.sh
+
+      - name: Build the site
+        run: |
+          pip install jinja2
+          python3 tools/build_static.py
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
