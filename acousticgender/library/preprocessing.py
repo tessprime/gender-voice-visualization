@@ -36,12 +36,13 @@ def write_dictionary(transcript, path):
 				dst.write(line)
 	return path
 
-def process(uploaded_file, transcript, tmp_dir, aligner=None):
+def process(uploaded_file, transcript, tmp_dir, aligner=None, keep_files=False):
 	"""Clean up and align the recording, then measure each phone with Praat.
 
 	Aligns with `aligner` (a loaded phonealign.Aligner) if given, otherwise
 	by running `mfa align`. Returns Praat's output, or None if alignment
-	failed.
+	failed. tmp_dir is created, and deleted afterwards unless `keep_files`
+	or the dev setting is on.
 	"""
 	################## Noise Removal ##################
 
@@ -134,7 +135,7 @@ def process(uploaded_file, transcript, tmp_dir, aligner=None):
 		with open(grid.replace('.TextGrid', '.tsv'), 'w') as f:
 			f.write(praat_output)
 
-		if not settings['dev']:
+		if not (settings['dev'] or keep_files):
 			shutil.rmtree(tmp_dir)
 		return praat_output
 

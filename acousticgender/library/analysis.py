@@ -1,10 +1,30 @@
+import os
 import random
+import sys
 
 from . import phones, preprocessing, resonance
 from .settings import settings
 
 # Formant weights for resonance, fitted by corpusanalysis.py.
 WEIGHTS = [0.7321428571428571, 0.26785714285714285, 0.0]
+
+def load_aligner():
+	"""Load phonealign's Aligner with the MFA english models (a few seconds).
+	Raises if phonealign or the models aren't available."""
+	repository = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+	sys.path.insert(0, os.path.join(repository, 'phonealign', 'src'))
+	from phonealign import Aligner
+
+	models = os.path.join(os.environ.get('MFA_ROOT_DIR', os.path.expanduser('~/Documents/MFA')), 'pretrained_models')
+	# Loading unpacks the model under $MFA_ROOT_DIR. Callers may run as root
+	# while `mfa align` (backend.cgi) runs as nobody, so keep anything created
+	# there writable by everyone, as the Dockerfile does.
+	old_umask = os.umask(0)
+	try:
+		return Aligner(os.path.join(models, 'acoustic', 'english.zip'),
+		               os.path.join(models, 'dictionary', 'english.dict'))
+	finally:
+		os.umask(old_umask)
 
 def analyze(uploaded_file, transcript, aligner=None):
 	"""Process one uploaded recording. Returns (id, data), where data is

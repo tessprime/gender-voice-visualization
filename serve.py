@@ -12,20 +12,9 @@ import traceback
 # load, uploads go through backend.cgi as before.
 aligner = None
 try:
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'phonealign', 'src'))
-    from phonealign import Aligner
-    from acousticgender.library.analysis import analyze
-    models = os.path.join(os.environ.get('MFA_ROOT_DIR', os.path.expanduser('~/Documents/MFA')), 'pretrained_models')
+    from acousticgender.library.analysis import analyze, load_aligner
     start = time.perf_counter()
-    # Loading unpacks the model under $MFA_ROOT_DIR. This server runs as
-    # root but backend.cgi's `mfa align` runs as nobody, so keep anything
-    # created there writable by everyone, as the Dockerfile does.
-    old_umask = os.umask(0)
-    try:
-        aligner = Aligner(os.path.join(models, 'acoustic', 'english.zip'),
-                          os.path.join(models, 'dictionary', 'english.dict'))
-    finally:
-        os.umask(old_umask)
+    aligner = load_aligner()
     print("phonealign loaded in %.1f s" % (time.perf_counter() - start))
 except Exception:
     traceback.print_exc()
