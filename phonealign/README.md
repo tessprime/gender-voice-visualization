@@ -17,29 +17,44 @@ quality analysis, per-stage queue polling); the actual alignment is a few
 hundred milliseconds. phonealign keeps the model loaded and calls Kaldi
 directly through `kalpy`, the bindings MFA itself uses.
 
-## Intended API
+## Usage
 
 ```python
-from phonealign import Aligner
+from phonealign import Aligner, AlignmentError
 
+# Once: loads the acoustic model and reads the dictionary (~4 s with imports).
 aligner = Aligner(acoustic_model='english_us_arpa.zip', dictionary='english.dict')
-result = aligner.align(samples, sample_rate=16000, transcript='When the sunlight ...')
-result.words   # [(start, end, 'when'), ...]
-result.phones  # [(start, end, 'HH'), (start, end, 'W'), ...]
+
+# Per recording: mono float samples in -1..1, at any sample rate (resampled
+# to 16 kHz). ~300 ms for a 26 s clip.
+try:
+	alignment = aligner.align(samples, sample_rate=16000, transcript='When the sunlight ...')
+except AlignmentError:
+	...  # transcript doesn't match the audio, recording too short, etc.
+
+alignment.words   # [Interval(start=1.33, end=1.53, label='when'), ...]
+alignment.phones  # [Interval(start=1.33, end=1.37, label='HH'), ...]
+alignment.write_textgrid('out.TextGrid')  # same format as `mfa align`
 ```
 
-The `Aligner` is created once (loading the model) and reused for every
-request. Output should match `mfa align` with the same models, which is the
-reference for testing.
+Times are in seconds, at the aligner's 10 ms resolution. Silence isn't
+listed: it's the time not covered by any interval.
+
+Results match `mfa align` within MFA's own run-to-run variation (MFA's
+feature extraction is random; see `docs/CURRENT.md`), and are identical for
+identical input.
 
 ## Status
 
-Not implemented yet. First steps:
+Working, not yet used by the backend. `tools/` has the experiments and
+checks behind it:
 
-1. List the `kalpy` calls `mfa align` makes for one utterance (features,
-   CMVN, training graph compilation, GMM alignment, word/phone extraction).
-2. Reproduce one clip's TextGrid exactly with those calls.
-3. Time each call.
+- `check_aligner.py`: runs `Aligner` on a clip and times it.
+- `compare_textgrids.py`: compares two TextGrids' intervals.
+- `kalpy_align.py`, `persistent_align.py`: the timing and accuracy
+  experiments that shaped the design.
+
+They need the Docker image (for kalpy and the models).
 
 ## License
 
@@ -49,6 +64,8 @@ MIT, matching MFA and kalpy) would need the copyright holders' agreement.
 
 ## Dependencies
 
-`kalpy` (Kaldi bindings), currently installed through conda alongside MFA
-in the Docker image. Pin it in `pyproject.toml` once the exact
-requirements are known.
+`kalpy` (Kaldi bindings) and, for now, `montreal_forced_aligner` (for
+loading acoustic models and its tokenizer), both installed through conda
+in the Docker image. Pin them in `pyproject.toml` once the exact
+requirements are known. Dropping the MFA dependency would cut ~2 s of
+imports from startup.
