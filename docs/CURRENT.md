@@ -3,6 +3,32 @@
 What we're working on right now, kept up to date as work happens. The
 longer-term plan is in [ROADMAP.md](ROADMAP.md).
 
+## Goal: run the whole analysis in the browser
+
+voicealign (alignment) and voicemeasure (pitch, formants) run in
+WebAssembly. Still needed to replace the server:
+
+- [ ] 1. Audio input: decode and resample to 16 kHz mono in the page; fix
+      the recorder's duplicated-listener bug.
+- [ ] 2. Model files in the browser: `final.alimdl` (~50 MB), `tree`,
+      `lda.mat`, `phones.txt`, the dictionary (7 MB), `cmudict.txt`
+      (3.7 MB); cached, with download progress. Check the pretrained
+      model's license before redistributing it.
+- [x] **3. Scoring in JavaScript** (`ui/scoring.js`): a port of
+      `phones.parse` and `resonance.compute_resonance`, from aligned words
+      and phones with F0-F3 to the JSON the backend returns. Checked with
+      `tests/scoring/`: `make_reference.py` runs recordings through the
+      server pipeline and saves Praat's measurements and the backend's
+      JSON; `check_scoring.mjs` scores the same measurements in JS and
+      compares every value. **22/22 cases identical** (21 example clips +
+      the test clip; relative tolerance 1e-9). The check fails all 22 when
+      a weight is changed from 0.268 to 0.27 or the outlier threshold from
+      2 to 2.5, so it isn't vacuous.
+- [ ] 4. Wiring: run the pipeline in a Web Worker; replace the
+      `fetch('./backend.cgi')` in `ui/new-clip.html`.
+- [ ] 5. End-to-end check: the same recordings through the server and the
+      browser, compared on what the user sees.
+
 ## Goal: voicealign, phonealign's forced alignment in Rust
 
 Port what `phonealign` does through kalpy/Kaldi to a Rust crate,
