@@ -33,8 +33,11 @@ runs reuse the cached image. You only need to rebuild after changing the
   fails to load, the log says so and uploads fall back to `backend.cgi`,
   which runs `mfa align` per request (~8-10 s).
 - Uploads are processed in `/rec` inside the container, which is mounted from
-  `./rec` in your checkout. With `"dev": true` in `settings.json`, every clip's
-  directory is kept, successful or not. It holds the original upload (`orig`),
+  `./rec` in your checkout. Each clip's directory is deleted as soon as it's
+  processed, successful or not, since it holds the user's recording. To keep
+  them for debugging, add `"keep_recordings": true` to `settings.json`; then
+  clean up `./rec` yourself, as nothing else will. A kept directory holds
+  the original upload (`orig`),
   the cleaned audio, `align.log` (the aligner's output or error) and
   `output/` (the TextGrid, if alignment succeeded). Clips processed by
   `backend.cgi` also have `mfa_logs/` (MFA's per-step logs, e.g.

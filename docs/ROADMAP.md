@@ -180,6 +180,23 @@ computation. The actual alignment is a few hundred milliseconds.
       (ties in with the logging cleanup below), and add a timing check to
       catch regressions.
 
+## 4. Opt-in bug reports with the recording
+
+Recordings are deleted as soon as they're processed, including ones that
+fail, for privacy. That leaves no way to debug a failure a user hits. Let
+the user choose to send the failed recording as a bug report.
+
+- [ ] When processing fails, offer "Send this recording to help fix it",
+      with wording that says exactly what's sent (the audio and the
+      transcript) and how long it's kept. Never send without that click.
+- [ ] The browser already has the audio (`clip.audio`), so the report can
+      re-upload it to a separate endpoint; the server doesn't need to hold
+      on to anything in the meantime.
+- [ ] Store reports apart from normal processing, with the error, the
+      server's log line and the app version, and a retention limit (e.g.
+      delete after 30 days, or once the bug is fixed).
+- [ ] Decide who can access reports, and say so in the consent text.
+
 ## Other open items
 
 From earlier work, roughly by priority:

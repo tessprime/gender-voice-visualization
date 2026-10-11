@@ -41,12 +41,23 @@ def process(uploaded_file, transcript, tmp_dir, aligner=None, keep_files=False):
 
 	Aligns with `aligner` (a loaded phonealign.Aligner) if given, otherwise
 	by running `mfa align`. Returns Praat's output, or None if alignment
-	failed. tmp_dir is created, and deleted afterwards unless `keep_files`
-	or the dev setting is on.
+	failed.
+
+	tmp_dir is created, and always deleted afterwards (whether processing
+	succeeded, failed or raised), since it holds the user's recording and
+	transcript. It's kept only with `keep_files` or the `keep_recordings`
+	setting.
 	"""
+	os.mkdir(tmp_dir)
+	try:
+		return _process(uploaded_file, transcript, tmp_dir, aligner)
+	finally:
+		if not (keep_files or settings.get('keep_recordings')):
+			shutil.rmtree(tmp_dir, ignore_errors=True)
+
+def _process(uploaded_file, transcript, tmp_dir, aligner):
 	################## Noise Removal ##################
 
-	os.mkdir(tmp_dir)
 	filetype = magic.from_buffer(uploaded_file)
 
 	input_file    = tmp_dir + '/orig'
@@ -135,8 +146,6 @@ def process(uploaded_file, transcript, tmp_dir, aligner=None, keep_files=False):
 		with open(grid.replace('.TextGrid', '.tsv'), 'w') as f:
 			f.write(praat_output)
 
-		if not (settings['dev'] or keep_files):
-			shutil.rmtree(tmp_dir)
 		return praat_output
 
 def align_with_phonealign(aligner, corpus_dir, output_dir, transcript, tmp_dir):
