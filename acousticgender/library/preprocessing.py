@@ -1,4 +1,4 @@
-import subprocess, os, glob, shutil, sys, re
+import subprocess, os, glob, shutil, sys, re, time
 import magic
 
 from . import settings as settings_module
@@ -36,7 +36,13 @@ def write_dictionary(transcript, path):
 				dst.write(line)
 	return path
 
-def process(uploaded_file, transcript, tmp_dir):
+def process(uploaded_file, transcript, tmp_dir, aligner=None):
+	"""Clean up and align the recording, then measure each phone with Praat.
+
+	Aligns with `aligner` (a loaded phonealign.Aligner) if given, otherwise
+	by running `mfa align`. Returns Praat's output, or None if alignment
+	failed.
+	"""
 	################## Noise Removal ##################
 
 	os.mkdir(tmp_dir)
@@ -88,7 +94,7 @@ def process(uploaded_file, transcript, tmp_dir):
 		])
 
 		assert(os.path.exists(clean_file))
-	except e:
+	except Exception:
 		clean_file = input_file
 
 	################## Forced Alignment ##################
@@ -111,6 +117,46 @@ def process(uploaded_file, transcript, tmp_dir):
 	with open(corpus_dir + '/recording.txt', 'w') as f:
 		f.write(transcript)
 
+	if aligner is not None:
+		align_with_phonealign(aligner, corpus_dir, output_dir, transcript, tmp_dir)
+	else:
+		align_with_mfa(transcript, tmp_dir)
+
+	################## Phonetic Processing ##################
+	for recording, grid in zip(
+		glob.glob(corpus_dir + '/*.wav'),
+		glob.glob(output_dir + '/*.TextGrid')
+	):
+		praat_output = subprocess.check_output([
+			'./textgrid-formants.praat', recording, grid
+		]).decode('utf-8')
+
+		with open(grid.replace('.TextGrid', '.tsv'), 'w') as f:
+			f.write(praat_output)
+
+		if not settings['dev']:
+			shutil.rmtree(tmp_dir)
+		return praat_output
+
+def align_with_phonealign(aligner, corpus_dir, output_dir, transcript, tmp_dir):
+	"""Write output/recording.TextGrid using an already-loaded aligner. On
+	failure, write no TextGrid (as when `mfa align` fails)."""
+	import soundfile
+	start = time.perf_counter()
+	try:
+		samples, rate = soundfile.read(corpus_dir + '/recording.wav', dtype='float32')
+		alignment = aligner.align(samples, rate, transcript)
+		alignment.write_textgrid(output_dir + '/recording.TextGrid')
+		log = 'phonealign: aligned %d words, %d phones in %.0f ms\n' % (
+			len(alignment.words), len(alignment.phones), (time.perf_counter() - start) * 1000)
+	except Exception as e:
+		log = 'phonealign: alignment failed: %r\n' % e
+		print(log, end='', file=sys.stderr)
+	with open(tmp_dir + '/align.log', 'w') as f:
+		f.write(log)
+
+def align_with_mfa(transcript, tmp_dir):
+	"""Write output/recording.TextGrid by running `mfa align` in tmp_dir."""
 	dictionary = write_dictionary(transcript, tmp_dir + '/dictionary.dict')
 
 	with open(tmp_dir + '/align.sh', 'w') as f:
@@ -149,20 +195,3 @@ def process(uploaded_file, transcript, tmp_dir):
 		dest = tmp_dir + '/mfa_logs/' + os.path.relpath(log, mfa_root + '/corpus')
 		os.makedirs(os.path.dirname(dest), exist_ok=True)
 		shutil.copy(log, dest)
-
-
-	################## Phonetic Processing ##################
-	for recording, grid in zip(
-		glob.glob(corpus_dir + '/*.wav'), 
-		glob.glob(output_dir + '/*.TextGrid')
-	):
-		praat_output = subprocess.check_output([
-			'./textgrid-formants.praat', recording, grid
-		]).decode('utf-8')
-
-		with open(grid.replace('.TextGrid', '.tsv'), 'w') as f:
-			f.write(praat_output)
-
-		if not settings['dev']:
-			shutil.rmtree(tmp_dir)
-		return praat_output
