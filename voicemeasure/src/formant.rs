@@ -176,8 +176,10 @@ fn burg(x: &[f64], order: usize) -> Option<Vec<f64>> {
 }
 
 /// All complex roots of the polynomial with real coefficients
-/// `c[0] z^n + c[1] z^(n-1) + ... + c[n]`, by the Durand-Kerner method
-/// followed by Newton polishing.
+/// `c[0] z^n + c[1] z^(n-1) + ... + c[n]`, by the Aberth-Ehrlich method
+/// followed by Newton polishing. (Durand-Kerner, used at first, often never
+/// met its stopping criterion when roots were clustered, as for clean
+/// synthetic signals, making analysis ~8 times slower.)
 fn polynomial_roots(c: &[f64]) -> Vec<Complex<f64>> {
     let degree = c.len() - 1;
     let monic: Vec<Complex<f64>> = c.iter().map(|&v| Complex::new(v / c[0], 0.0)).collect();
@@ -194,20 +196,25 @@ fn polynomial_roots(c: &[f64]) -> Vec<Complex<f64>> {
     let mut roots: Vec<Complex<f64>> = (0..degree)
         .map(|k| Complex::from_polar(0.9, 2.0 * PI * (k as f64 + 0.25) / degree as f64))
         .collect();
-    for _ in 0..500 {
+    for _ in 0..100 {
         let mut largest_step = 0.0f64;
         for i in 0..degree {
-            let mut denominator = Complex::new(1.0, 0.0);
-            for j in 0..degree {
-                if i != j {
-                    denominator *= roots[i] - roots[j];
-                }
+            let slope = derivative(roots[i]);
+            if slope.norm() == 0.0 {
+                continue;
             }
-            let step = evaluate(roots[i]) / denominator;
+            let newton = evaluate(roots[i]) / slope;
+            let repulsion: Complex<f64> = (0..degree)
+                .filter(|&j| j != i)
+                .map(|j| Complex::new(1.0, 0.0) / (roots[i] - roots[j]))
+                .sum();
+            let step = newton / (Complex::new(1.0, 0.0) - newton * repulsion);
             roots[i] -= step;
             largest_step = largest_step.max(step.norm());
         }
-        if largest_step < 1e-14 {
+        // Not tighter: clustered roots jitter at the rounding level and
+        // would never stop. Newton polishing below refines each root further.
+        if largest_step < 1e-12 {
             break;
         }
     }

@@ -26,11 +26,62 @@ pub fn resample(samples: &[f64], rate: f64, new_rate: f64) -> Vec<f64> {
     let duration = samples.len() as f64 / rate;
     let count = (duration * new_rate).round() as usize;
     let first_time = 0.5 * (duration - (count as f64 - 1.0) / new_rate);
+    // Position in the source, in samples (sample j is at (j + 0.5) / rate).
+    let position = |i: usize| (first_time + i as f64 / new_rate) * rate - 0.5;
+
+    // Output i and output i + period sit at the same fraction of a source
+    // sample (for 16 -> 10 kHz, period 5), so the sinc weights only need
+    // computing once per phase.
+    let ratio = rate / new_rate;
+    let period = (1..=1000).find(|&m| {
+        let steps = m as f64 * ratio;
+        (steps - steps.round()).abs() < 1e-9
+    });
+    let period = match period {
+        Some(period) if period < count => period,
+        _ => return (0..count).map(|i| interpolate_sinc(source, position(i))).collect(),
+    };
+    let step = (period as f64 * ratio).round() as i64; // source samples per period
+    let kernels: Vec<(i64, Vec<f64>)> = (0..period)
+        .map(|phase| {
+            let p = position(phase);
+            let first = p.floor() as i64 - SINC_DEPTH as i64 + 1;
+            (first, sinc_weights(p - first as f64))
+        })
+        .collect();
     (0..count)
         .map(|i| {
-            // Position in the source, in samples (sample j is at (j + 0.5) / rate).
-            let position = (first_time + i as f64 / new_rate) * rate - 0.5;
-            interpolate_sinc(source, position)
+            let (first, weights) = &kernels[i % period];
+            let first = first + (i / period) as i64 * step;
+            if first >= 0 && first + weights.len() as i64 <= source.len() as i64 {
+                let window = &source[first as usize..first as usize + weights.len()];
+                window.iter().zip(weights).map(|(x, w)| x * w).sum()
+            } else {
+                // Near the ends some taps fall outside the sound.
+                weights
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(k, w)| source.get(usize::try_from(first + k as i64).ok()?).map(|x| x * w))
+                    .sum()
+            }
+        })
+        .collect()
+}
+
+/// The 2 * SINC_DEPTH windowed-sinc weights for taps at distances
+/// `first_distance`, `first_distance - 1`, ... from the interpolated point.
+fn sinc_weights(first_distance: f64) -> Vec<f64> {
+    (0..2 * SINC_DEPTH)
+        .map(|k| {
+            let distance = first_distance - k as f64;
+            // From the fractional part, for precision near whole samples.
+            let reduced = distance - distance.round();
+            let sinc = if distance.abs() < 1e-12 {
+                1.0
+            } else {
+                (PI * reduced).sin() * if distance.round() as i64 % 2 == 0 { 1.0 } else { -1.0 } / (PI * distance)
+            };
+            sinc * (0.5 + 0.5 * (PI * distance / (SINC_DEPTH as f64 + 0.5)).cos())
         })
         .collect()
 }
@@ -61,19 +112,33 @@ fn low_pass(samples: &[f64], rate: f64, cutoff: f64) -> Vec<f64> {
 /// raised-cosine window `SINC_DEPTH` samples to each side.
 fn interpolate_sinc(samples: &[f64], position: f64) -> f64 {
     let centre = position.floor() as i64;
+    let first = centre - SINC_DEPTH as i64 + 1;
+    // Successive taps are one sample apart, so instead of two trig calls per
+    // tap: sin(pi (d - k)) = (-1)^k sin(pi d), and the window's cosine is
+    // advanced by rotating (cos, sin) of its angle by a fixed step.
+    let first_distance = position - first as f64;
+    // sin(pi d) from d's fractional part: d itself is up to SINC_DEPTH, and
+    // when it's within ~1e-10 of a whole number (common: 16 -> 10 kHz puts
+    // every fifth output on an input sample), sin(pi d) computed directly
+    // keeps too little relative precision for sin(pi d) / (pi d).
+    let nearest = first_distance.round();
+    let mut sin_pi_distance =
+        (PI * (first_distance - nearest)).sin() * if nearest as i64 % 2 == 0 { 1.0 } else { -1.0 };
+    let step = PI / (SINC_DEPTH as f64 + 0.5);
+    let (step_cos, step_sin) = (step.cos(), step.sin());
+    let (mut angle_cos, mut angle_sin) = ((step * first_distance).cos(), (step * first_distance).sin());
     let mut sum = 0.0;
-    for j in (centre - SINC_DEPTH as i64 + 1)..=(centre + SINC_DEPTH as i64) {
-        if j < 0 || j >= samples.len() as i64 {
-            continue;
+    for k in 0..2 * SINC_DEPTH as i64 {
+        let j = first + k;
+        if j >= 0 && j < samples.len() as i64 {
+            let distance = first_distance - k as f64;
+            let sinc = if distance.abs() < 1e-12 { 1.0 } else { sin_pi_distance / (PI * distance) };
+            sum += samples[j as usize] * sinc * (0.5 + 0.5 * angle_cos);
         }
-        let distance = position - j as f64;
-        let sinc = if distance.abs() < 1e-12 {
-            1.0
-        } else {
-            (PI * distance).sin() / (PI * distance)
-        };
-        let window = 0.5 + 0.5 * (PI * distance / (SINC_DEPTH as f64 + 0.5)).cos();
-        sum += samples[j as usize] * sinc * window;
+        sin_pi_distance = -sin_pi_distance;
+        let rotated_cos = angle_cos * step_cos + angle_sin * step_sin; // angle - step
+        angle_sin = angle_sin * step_cos - angle_cos * step_sin;
+        angle_cos = rotated_cos;
     }
     sum
 }
@@ -81,6 +146,37 @@ fn interpolate_sinc(samples: &[f64], position: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The straightforward version: two trig calls per tap.
+    fn interpolate_sinc_direct(samples: &[f64], position: f64) -> f64 {
+        let centre = position.floor() as i64;
+        let mut sum = 0.0;
+        for j in (centre - SINC_DEPTH as i64 + 1)..=(centre + SINC_DEPTH as i64) {
+            if j < 0 || j >= samples.len() as i64 {
+                continue;
+            }
+            let distance = position - j as f64;
+            let sinc = if distance.abs() < 1e-12 { 1.0 } else { (PI * distance).sin() / (PI * distance) };
+            let window = 0.5 + 0.5 * (PI * distance / (SINC_DEPTH as f64 + 0.5)).cos();
+            sum += samples[j as usize] * sinc * window;
+        }
+        sum
+    }
+
+    #[test]
+    fn fast_interpolation_matches_the_direct_formula() {
+        let samples: Vec<f64> = (0..1000).map(|i| ((i * 7919) % 1000) as f64 / 500.0 - 1.0).collect();
+        let mut largest: f64 = 0.0;
+        // Arbitrary positions, and positions a hair from whole samples (as
+        // when resampling 16 -> 10 kHz), where precision is easiest to lose.
+        let positions = (0..2000)
+            .map(|i| i as f64 * 0.4999 - 3.0)
+            .chain((0..900).map(|i| (i + 50) as f64 + [3e-11, -3e-11, 0.0][i % 3]));
+        for position in positions {
+            largest = largest.max((interpolate_sinc(&samples, position) - interpolate_sinc_direct(&samples, position)).abs());
+        }
+        assert!(largest < 1e-9, "largest difference {}", largest);
+    }
 
     #[test]
     fn keeps_a_low_tone_and_duration() {
