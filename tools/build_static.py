@@ -40,7 +40,11 @@ with open(os.path.join(out, 'index.html'), 'w') as f:
 
 # Everything else the page loads.
 files = generated + ['ui/analysis-worker.js', 'ui/scoring.js', 'cmudict.txt', 'stats.json',
-                     'manifest.json', 'sw.js', 'offline.html']
+                     'manifest.json', 'sw.js', 'offline.html',
+                     'components/voice-spectrogram/voice-spectrogram.js',
+                     'components/voice-spectrogram/spectrogram.js',
+                     'components/voice-spectrogram/voice-live-spectrogram.js',
+                     'components/voice-spectrogram/pitch.js']
 for path in files:
 	os.makedirs(os.path.dirname(os.path.join(out, path)) or out, exist_ok=True)
 	shutil.copy2(path, os.path.join(out, path))

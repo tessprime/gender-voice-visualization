@@ -45,23 +45,6 @@ function vowelGroups(clip) {
 	return Object.values(groups);
 }
 
-// Playing parts of a clip, like a constellation's vowels, needs sample
-// accuracy that seeking the player's <audio> element doesn't have, so they
-// play through Web Audio from the clip's decoded audio (cached per clip).
-let vowelAudioContext = null;
-const decodedClipAudio = new WeakMap();
-function decodeClipAudio(clip) {
-	vowelAudioContext = vowelAudioContext || new AudioContext();
-	if (!decodedClipAudio.has(clip)) {
-		let decoding = fetch(clip.audio)
-			.then(response => response.arrayBuffer())
-			.then(data => vowelAudioContext.decodeAudioData(data));
-		decoding.catch(() => decodedClipAudio.delete(clip));
-		decodedClipAudio.set(clip, decoding);
-	}
-	return decodedClipAudio.get(clip);
-}
-
 // Vowel playback: each instance plays its whole word (an isolated vowel is
 // often too short to hear), with a little audio either side, faded in and
 // out to avoid clicks, and a pause between words.
@@ -381,7 +364,7 @@ class VoiceGraph {
 
 		decodeClipAudio(clip).then(buffer => {
 			if (this.vowelPlayback != playback) return;
-			let context = vowelAudioContext;
+			let context = clipAudioContext;
 			context.resume();
 			let order = instances.map((instance, index) => index)
 				.sort((a, b) => instances[a].start - instances[b].start);
@@ -408,7 +391,7 @@ class VoiceGraph {
 				playback.timers.push(setTimeout(() => {
 					for (let element of elements) element.classList.remove('current');
 					elements[index].classList.add('current');
-					setSpokenWord(clip, instance.wordIndex);
+					setSpokenWord(clip, instance.wordIndex, instance.start);
 				}, delay));
 				when += duration + VOWEL_GAP;
 			}

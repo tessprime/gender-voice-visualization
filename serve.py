@@ -15,7 +15,7 @@ import urllib.parse
 ALLOWED_FILES = {"/", "/index.html", "/manifest.json", "/sw.js", "/offline.html",
                  # Data the in-browser analysis (ui/analysis-worker.js) loads.
                  "/cmudict.txt", "/stats.json"}
-ALLOWED_DIRECTORIES = ("/ui/", "/resources/", "/models/")
+ALLOWED_DIRECTORIES = ("/ui/", "/resources/", "/models/", "/components/")
 
 # Recordings from the browser are well under 1 MB per minute.
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024

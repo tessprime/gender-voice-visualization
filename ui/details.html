@@ -74,6 +74,18 @@ td.highlight {
 #delete-confirm {
 	transition: .3s all;
 }
+.details .spectrogram-scale {
+	display: block;
+	margin-bottom: 1em;
+	font-size: small;
+	font-weight: normal;
+}
+#preview-spectrogram {
+	margin: 1em 0 .25em;
+	--vs-height: 160px;
+	--vs-axis-width: 3.4em;
+	--vs-border: var(--chrome-border);
+}
 </style>
 <section class="details"> 
 	<h2 class='instructions'>Clip Details</h2>
@@ -117,6 +129,15 @@ td.highlight {
 			</tr>
 		</table>
 		<br>
+		<voice-spectrogram id="preview-spectrogram" view-duration="6"></voice-spectrogram>
+		<label class="spectrogram-scale">Show up to
+			<select id="preview-max-frequency">
+				<option value="500">500 Hz</option>
+				<option value="1000">1000 Hz</option>
+				<option value="2000">2000 Hz</option>
+				<option value="5000" selected>5000 Hz</option>
+			</select>
+		</label>
 		<div>
 			<label for="preview-transcript">Transcript</label>:
 			<span id='preview-transcript'></span>
@@ -194,6 +215,63 @@ globalState.render(['playbackTime', 'playingClip'], current => {
 	let phone = clip && clip.indexedPhones && current.playbackTime > 0
 		? clip.indexedPhones[Math.floor(current.playbackTime * 100)] : null;
 	setSpokenWord(clip, phone && phone.word && phone.word.word ? phone.word_index : null);
+});
+
+// The clip's spectrogram with its words and phones
+// (components/voice-spectrogram). It shows the player's position while the
+// clip plays, and the vowel playing during a constellation's vowel
+// playback; clicking it plays the clip from there.
+const previewSpectrogram = $('#preview-spectrogram');
+let spectrogramClip = null;
+let spectrogramTimer = null;
+globalState.render(['previewClip'], current => {
+	let clip = current.previewClip;
+	if (clip == spectrogramClip) return;
+	spectrogramClip = clip;
+	Object.assign(previewSpectrogram, {audio: null, words: [], phones: [], currentTime: null});
+	clearTimeout(spectrogramTimer);
+	if (!clip || !clip.audio || !clip.phones) return;
+	// Hovering across the graph changes the clip often; wait for it to settle.
+	spectrogramTimer = setTimeout(() => decodeClipAudio(clip).then(audio => {
+		if (spectrogramClip != clip) return;
+		let {words, phones} = alignedIntervals(clip, audio.duration);
+		Object.assign(previewSpectrogram, {audio, words, phones});
+		updateSpectrogramCursor();
+	}).catch(error => console.error('Could not draw the spectrogram:', error)), 200);
+});
+
+function updateSpectrogramCursor() {
+	let clip = spectrogramClip;
+	let spoken = globalState.get('spokenWord');
+	let time = null;
+	if (spoken && spoken.clip == clip && spoken.time != null) {
+		time = spoken.time;
+	} else if (clip && globalState.get('playingClip') == clip && globalState.get('playbackTime') > 0) {
+		time = globalState.get('playbackTime');
+	}
+	previewSpectrogram.currentTime = time;
+}
+globalState.render(['playbackTime', 'playingClip', 'spokenWord'], updateSpectrogramCursor);
+
+// Its frequency scale: the menu, or ctrl+wheel over its frequency axis.
+$('#preview-max-frequency').addEventListener('change', evt => {
+	previewSpectrogram.setAttribute('max-frequency', evt.target.value);
+});
+previewSpectrogram.addEventListener('scalechange', evt => {
+	let select = $('#preview-max-frequency');
+	let value = String(evt.detail.maxFrequency);
+	if (!Array.from(select.options).some(option => option.value == value)) {
+		select.add(new Option(`${value} Hz`, value));
+	}
+	select.value = value;
+});
+
+previewSpectrogram.addEventListener('seek', event => {
+	let clip = spectrogramClip;
+	if (!clip) return;
+	if (globalState.get('playingClip') != clip) globalState.set('playingClip', clip);
+	globalState.set('playbackTime', event.detail.time);
+	globalState.set('playing', true);
 });
 
 $('section.details button.download').addEventListener('click', evt => {

@@ -110,13 +110,60 @@ function transcriptPieces(transcript, phones) {
 
 
 // Set the word being heard (see 'spokenWord' in globals.js), if it changed.
-function setSpokenWord(clip, wordIndex) {
+// time, if given, is a moment in it to point at (e.g. the vowel playing);
+// otherwise views follow the player's position.
+function setSpokenWord(clip, wordIndex, time = null) {
 	let spoken = globalState.get('spokenWord');
 	if (clip == null || wordIndex == null) {
 		if (spoken) globalState.set('spokenWord', null);
-	} else if (!spoken || spoken.clip != clip || spoken.wordIndex != wordIndex) {
-		globalState.set('spokenWord', {clip: clip, wordIndex: wordIndex});
+	} else if (!spoken || spoken.clip != clip || spoken.wordIndex != wordIndex || spoken.time != time) {
+		globalState.set('spokenWord', {clip: clip, wordIndex: wordIndex, time: time});
 	}
+}
+
+
+// A clip's decoded audio (an AudioBuffer), cached per clip. Used to play
+// parts of a clip, like a constellation's vowels, which needs more accuracy
+// than seeking the player's <audio> element, and to draw its spectrogram.
+let clipAudioContext = null;
+const decodedClipAudio = new WeakMap();
+function decodeClipAudio(clip) {
+	clipAudioContext = clipAudioContext || new AudioContext();
+	if (!decodedClipAudio.has(clip)) {
+		let decoding = fetch(clip.audio)
+			.then(response => response.arrayBuffer())
+			.then(data => clipAudioContext.decodeAudioData(data));
+		decoding.catch(() => decodedClipAudio.delete(clip));
+		decodedClipAudio.set(clip, decoding);
+	}
+	return decodedClipAudio.get(clip);
+}
+
+
+// A clip's aligned words and phones as intervals ({start, end, label},
+// plus kind for phones), as <voice-spectrogram> takes them. Each ends where
+// the next begins; the last at the end of the audio. Silences get an empty
+// label.
+const SILENCE_LABELS = ['', 'sil', 'sp', '<eps>'];
+function alignedIntervals(clip, duration) {
+	let phones = (clip.phones || []).map((phone, index, all) => ({
+		start: phone.time,
+		end: index + 1 < all.length ? all[index + 1].time : duration,
+		label: SILENCE_LABELS.includes(phone.phoneme) ? '' : phone.phoneme,
+		kind: phoneClass(phone.phoneme),
+		wordIndex: phone.word_index,
+	}));
+	let words = [];
+	for (let [index, phone] of phones.entries()) {
+		let previous = last(words);
+		if (previous && previous.wordIndex == phone.wordIndex) {
+			previous.end = phone.end;
+		} else {
+			let word = clip.phones[index].word;
+			words.push({start: phone.start, end: phone.end, label: word ? word.word : '', wordIndex: phone.wordIndex});
+		}
+	}
+	return {words, phones};
 }
 
 

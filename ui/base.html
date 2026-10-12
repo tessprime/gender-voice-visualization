@@ -27,6 +27,8 @@
 			// false for the static build (tools/build_static.py).
 			const serverAnalysisAvailable = {{ 'true' if server_analysis else 'false' }};
 		</script>
+		<script type="module" src="./components/voice-spectrogram/voice-spectrogram.js"></script>
+		<script type="module" src="./components/voice-spectrogram/voice-live-spectrogram.js"></script>
 		{% if dev %}
 			<script src="./ui/dom.js"></script>
 			<script src="./ui/globals.js"></script>

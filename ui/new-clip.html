@@ -42,6 +42,16 @@
 		#record-voice:checked  + label + div { display: block; }
 		#upload-file           + label + div { display: none;}
 		#upload-file:checked   + label + div { display: block;}
+		#live-spectrogram {
+			margin: .75em 0 .25em;
+			--vs-height: 180px;
+			--vs-axis-width: 3.6em;
+		}
+		.new-clip .live-scale {
+			display: block;
+			margin-bottom: .75em;
+			font-size: small;
+		}
 	</style>
 
 	<h2>Add a Clip</h2>
@@ -102,7 +112,17 @@
 		<button id="start-recording">⏺︎ Start</button>
 		<button id="stop-recording">⏹︎ Stop</button>
 		Recorded <span id="recording-count">0</span> seconds
-		<br>
+		<!-- The microphone's spectrogram and pitch while recording
+		     (components/voice-spectrogram). -->
+		<voice-live-spectrogram id="live-spectrogram" max-frequency="1000"></voice-live-spectrogram>
+		<label class="live-scale">Show up to
+			<select id="live-max-frequency">
+				<option value="500">500 Hz</option>
+				<option value="1000" selected>1000 Hz</option>
+				<option value="2000">2000 Hz</option>
+				<option value="5000">5000 Hz</option>
+			</select>
+		</label>
 		<br>
 		<audio controls id="recording-preview"></audio>
 	</div>
@@ -131,6 +151,8 @@
 				startButton.disabled = true;
 				audioChunks = [];
 				mediaRecorder.start();
+				$('#live-spectrogram').clear();
+				$('#live-spectrogram').stream = mediaRecorder.stream;
 			}
 
 			function alertRecordingFailure(exception) {
@@ -160,6 +182,7 @@
 						});
 						mediaRecorder.addEventListener("stop", () => {
 							clearInterval(recordingInterval);
+							$('#live-spectrogram').stream = null;  // the picture stays
 							stopButton.disabled = true;
 							startButton.disabled = false;
 							const audioBlob = new Blob(audioChunks);
@@ -183,6 +206,19 @@
 		$('#start-recording').addEventListener('click', evt => {
 			recordAudio();
 
+		});
+
+		// The live view's frequency scale: the menu, or ctrl+wheel over it.
+		$('#live-max-frequency').addEventListener('change', evt => {
+			$('#live-spectrogram').setAttribute('max-frequency', evt.target.value);
+		});
+		$('#live-spectrogram').addEventListener('scalechange', evt => {
+			let select = $('#live-max-frequency');
+			let value = String(evt.detail.maxFrequency);
+			if (!Array.from(select.options).some(option => option.value == value)) {
+				select.add(new Option(`${value} Hz`, value));
+			}
+			select.value = value;
 		});
 
 		function submitAudio() {
