@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// Ported from Kaldi (https://github.com/kaldi-asr/kaldi), Copyright the
+// Kaldi authors, Apache License 2.0; translated to Rust and modified. See
+// NOTICE.
+
 //! Kaldi's GMM-HMM acoustic model (`final.mdl` / `final.alimdl`): the
 //! transition model followed by the diagonal-covariance GMMs. Ported from
 //! Kaldi's hmm-topology.cc, transition-model.cc, am-diag-gmm.cc and

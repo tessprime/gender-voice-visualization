@@ -3,6 +3,7 @@ name = "voicealign"
 version = "0.0.1"
 edition = "2021"
 description = "Forced alignment of recordings to transcripts with Kaldi GMM-HMM models, for the browser"
+license = "MIT AND Apache-2.0"
 publish = false
 
 [lib]

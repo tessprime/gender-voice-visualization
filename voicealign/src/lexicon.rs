@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 //! Pronunciation dictionaries in MFA's format, and phone symbol tables.
 //!
 //! A dictionary line is a word, up to four probabilities, then phones:

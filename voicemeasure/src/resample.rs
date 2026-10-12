@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 //! Resampling as Praat's `Sound: Resample` describes it: when lowering the
 //! rate, first remove everything above the new Nyquist frequency in the
 //! frequency domain, then compute the new samples by windowed sinc

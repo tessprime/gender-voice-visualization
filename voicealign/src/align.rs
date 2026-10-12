@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// Ported from Kaldi (https://github.com/kaldi-asr/kaldi), Copyright the
+// Kaldi authors, Apache License 2.0; translated to Rust and modified. See
+// NOTICE.
+
 //! Viterbi alignment of features to an alignment graph with beam pruning,
 //! as Kaldi's gmm-align-compiled (FasterDecoder via AlignUtteranceWrapper):
 //! try with `beam`, and if no path reaches the end, again with

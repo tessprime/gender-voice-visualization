@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 //! A minimal C-style interface for WebAssembly, needing no bindings
 //! generator. From JavaScript:
 //!

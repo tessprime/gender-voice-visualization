@@ -3,6 +3,7 @@ name = "voicemeasure"
 version = "0.0.1"
 edition = "2021"
 description = "Pitch and formant analysis matching Praat's, for measuring voices in the browser"
+license = "MIT"
 publish = false
 
 [lib]

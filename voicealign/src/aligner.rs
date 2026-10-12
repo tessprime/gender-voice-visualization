@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 //! The main entry point: load a model once, then align recordings.
 
 use crate::align::{align, AlignOptions};

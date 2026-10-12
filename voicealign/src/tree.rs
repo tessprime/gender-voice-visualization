@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// Ported from Kaldi (https://github.com/kaldi-asr/kaldi), Copyright the
+// Kaldi authors, Apache License 2.0; translated to Rust and modified. See
+// NOTICE.
+
 //! Kaldi's phonetic decision tree (`tree`, a ContextDependency): which pdf a
 //! phone's HMM state uses, given the phones around it. Ported from Kaldi's
 //! context-dep.cc and event-map.cc.

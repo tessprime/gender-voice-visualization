@@ -68,4 +68,9 @@ cargo run --release --example compare_model -- MODEL_DIR out/
 
 ## License
 
-Not decided yet. Code ported from Kaldi must keep Kaldi's Apache-2.0 notice.
+MIT (`LICENSE-MIT`), except the files ported from Kaldi (`features.rs`,
+`model.rs`, `tree.rs`, `align.rs`, `kaldi_io.rs`), which stay under Kaldi's
+Apache-2.0 license (`LICENSE-APACHE`); `NOTICE` lists them and the credits.
+Both are permissive, so the crate can be used in projects under most
+licenses; distributing it means including both license texts and `NOTICE`.
+It's licensed separately from the web app it was written for (AGPL-3.0).

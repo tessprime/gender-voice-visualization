@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// Ported from Kaldi (https://github.com/kaldi-asr/kaldi), Copyright the
+// Kaldi authors, Apache License 2.0; translated to Rust and modified. See
+// NOTICE.
+
 //! Reading Kaldi's binary object format (files starting with "\0B"):
 //! space-terminated tokens such as `<TransitionModel>`, integers and floats
 //! each preceded by a byte giving their size, and matrices/vectors as a type

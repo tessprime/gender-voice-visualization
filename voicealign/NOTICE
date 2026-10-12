@@ -1,0 +1,34 @@
+voicealign
+Copyright (c) 2026 Tess Greene
+
+voicealign is licensed under the MIT License (LICENSE-MIT), except for the
+files below, which are ported from Kaldi and remain under the Apache
+License, Version 2.0 (LICENSE-APACHE):
+
+  src/features.rs   MFCC, CMVN, splicing and LDA (Kaldi's feature-window.cc,
+                    mel-computations.cc, feature-mfcc.cc and related code)
+  src/model.rs      the HMM topology, transition model and diagonal GMMs
+                    (hmm-topology.cc, transition-model.cc, am-diag-gmm.cc,
+                    diag-gmm.cc)
+  src/tree.rs       the phonetic decision tree (context-dep.cc,
+                    event-map.cc)
+  src/align.rs      Viterbi alignment with beam pruning (gmm-align-compiled,
+                    FasterDecoder)
+  src/kaldi_io.rs   reading Kaldi's binary object format (kaldi-io.cc,
+                    io-funcs.cc, kaldi-matrix.cc)
+
+Kaldi: https://github.com/kaldi-asr/kaldi
+Copyright the Kaldi authors (see Kaldi's COPYING file for the list),
+licensed under the Apache License, Version 2.0.
+Changes: translated from C++ to Rust, reduced to what alignment with a
+GMM-HMM model needs, and restructured; each file's header says what it
+corresponds to.
+
+Other credits (MIT-licensed, followed rather than copied):
+- src/graph.rs follows the lexicon costs of kalpy (fstext/lexicon.py),
+  Copyright Michael McAuliffe, MIT License.
+- src/lexicon.rs follows the Montreal Forced Aligner's tokenization,
+  Copyright Michael McAuliffe and contributors, MIT License.
+
+The acoustic models and dictionaries voicealign is used with are not part
+of it; the Montreal Forced Aligner's are CC BY 4.0.

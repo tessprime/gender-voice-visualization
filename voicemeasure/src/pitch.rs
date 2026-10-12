@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 //! Pitch analysis by autocorrelation, as described in Boersma (1993),
 //! "Accurate short-term analysis of the fundamental frequency and the
 //! harmonics-to-noise ratio of a sampled sound", and Praat's manual for

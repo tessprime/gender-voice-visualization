@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// Ported from Kaldi (https://github.com/kaldi-asr/kaldi), Copyright the
+// Kaldi authors, Apache License 2.0; translated to Rust and modified. See
+// NOTICE.
+
 //! Acoustic features as kalpy computes them for alignment with this model:
 //! Kaldi MFCCs, CMVN (mean only), frames spliced ±3, then an LDA transform.
 //! Ported from Kaldi (feature-window.cc, mel-computations.cc,

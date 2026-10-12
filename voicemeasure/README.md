@@ -60,4 +60,6 @@ python3 voicemeasure/reference/check_examples.py out/examples
 
 ## License
 
-Not decided yet; it contains no GPL code, so it's free to choose.
+MIT (see `LICENSE`). It contains no Praat (GPL) code: the algorithms are
+implemented from Praat's published documentation. It's licensed separately
+from the web app it was written for (AGPL-3.0).

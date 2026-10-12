@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 //! Pitch and formant analysis producing the same numbers as Praat's
 //! `To Pitch` and `To Formant (burg)`, implemented from Praat's published
 //! documentation (not its source). See README.md.

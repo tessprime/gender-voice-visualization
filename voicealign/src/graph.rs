@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 //! The alignment graph for a transcript: the words in order, each with its
 //! pronunciations, optional silence between them, expanded into triphones
 //! (via the decision tree) and HMM states (via the transition model).

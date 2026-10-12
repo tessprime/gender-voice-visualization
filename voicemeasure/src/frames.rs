@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 //! Placement of analysis frames, as Praat does for short-term analyses: as
 //! many frames as fit, spaced `time_step` apart, centred in the sound.
 

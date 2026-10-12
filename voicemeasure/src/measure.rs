@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 //! Values at arbitrary times, as Praat's `Get value at time ... Hertz Linear`
 //! gives them, and the measurement the web app makes at each phone's
 //! midpoint (textgrid-formants.praat).

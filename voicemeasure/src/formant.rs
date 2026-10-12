@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 //! Formant analysis as described in Praat's manual for
 //! `Sound: To Formant (burg)...`:
 //!
