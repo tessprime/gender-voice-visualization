@@ -65,14 +65,16 @@ function synthetic() {
 	}
 	const words = vowels.map(v => ({start: v.start, end: v.end, label: `/${v.label}/`}));
 	const phones = vowels.map(v => ({start: v.start, end: v.end, label: v.label.toUpperCase(), kind: 'vowel'}));
-	return {audio: {samples, sampleRate: rate}, words, phones};
+	const levels = vowels.map((v, i) => ({start: v.start, end: v.end, value: [.3, .8, .55][i]}));
+	return {audio: {samples, sampleRate: rate}, words, phones, levels};
 }
 
-function show({audio, words, phones}) {
+function show({audio, words, phones, levels = []}) {
 	for (const view of views) {
 		view.audio = audio;
 		view.words = words;
 		view.phones = phones;
+		view.levels = levels;
 		view.currentTime = null;
 	}
 	context = context || new AudioContext();

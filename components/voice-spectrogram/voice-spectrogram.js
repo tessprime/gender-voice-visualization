@@ -116,6 +116,17 @@ const TEMPLATE = `
 	}
 	.segment[data-kind=vowel] { color: var(--vs-vowel, inherit); font-weight: bold; }
 	.segment.current[data-kind] { color: var(--vs-current-text, black); }
+	/* The levels row: each interval coloured by its value (see _renderTier). */
+	.levels {
+		height: var(--vs-levels-height, .7em);
+		border-top: none;
+		margin-bottom: 2px;
+	}
+	.levels .tier-name { font-size: .65em; }
+	.levels .segment { border-left: none; }
+	/* Faded: thinner rather than translucent, so the colour stays true. */
+	.levels .segment[data-faded] { top: 30%; bottom: 30%; }
+	.levels .segment.current { box-shadow: inset 0 0 0 2px var(--vs-current, #ffd400); }
 	.overview {
 		position: relative;
 		height: var(--vs-overview-height, 8px);
@@ -135,6 +146,7 @@ const TEMPLATE = `
 		background: var(--vs-overview, rgba(128, 128, 128, .8));
 	}
 </style>
+<div class="tier levels" part="levels" hidden><span class="tier-name"></span><div class="track"></div></div>
 <div class="plot" part="plot">
 	<canvas part="canvas"></canvas>
 	<div class="axis" part="axis"></div>
@@ -148,7 +160,7 @@ const TEMPLATE = `
 export class VoiceSpectrogram extends Base {
 	static get observedAttributes() {
 		return ['max-frequency', 'min-frequency', 'frequency-scale', 'window-length', 'dynamic-range',
-			'colormap', 'view-duration', 'show-pitch'];
+			'colormap', 'view-duration', 'show-pitch', 'levels-label'];
 	}
 
 	constructor() {
@@ -162,11 +174,14 @@ export class VoiceSpectrogram extends Base {
 		this._overview = this.shadowRoot.querySelector('.overview');
 		this._overviewWindow = this.shadowRoot.querySelector('.overview .window');
 		this._tiers = {
+			levels: this.shadowRoot.querySelector('.tier.levels'),
 			words: this.shadowRoot.querySelector('.tier.words'),
 			phones: this.shadowRoot.querySelector('.tier.phones'),
 		};
+		this._tiers.levels.querySelector('.tier-name').textContent = 'Level';
 		this._tiers.words.querySelector('.tier-name').textContent = 'Words';
 		this._tiers.phones.querySelector('.tier-name').textContent = 'Phones';
+		this._levels = [];
 
 		this._audio = null;
 		this._words = [];
@@ -253,7 +268,7 @@ export class VoiceSpectrogram extends Base {
 			element.addEventListener('click', event => {
 				let segment = event.target.closest('.segment');
 				if (!segment) return;
-				let item = (tier == 'words' ? this._words : this._phones)[segment.dataset.index];
+				let item = this._items(tier)[segment.dataset.index];
 				this._seek(item.start, {tier: tier.slice(0, -1), ...item});
 			});
 		}
@@ -261,7 +276,7 @@ export class VoiceSpectrogram extends Base {
 		// Properties set before the element was defined (e.g. by a framework
 		// that renders first and loads this module later) are plain fields
 		// that hide the setters; reapply them through the setters.
-		for (let name of ['audio', 'words', 'phones', 'currentTime', 'pitchTrack']) {
+		for (let name of ['audio', 'words', 'phones', 'levels', 'currentTime', 'pitchTrack']) {
 			if (Object.prototype.hasOwnProperty.call(this, name)) {
 				let value = this[name];
 				delete this[name];
@@ -288,7 +303,9 @@ export class VoiceSpectrogram extends Base {
 	}
 
 	attributeChangedCallback(name) {
-		if (name == 'view-duration') {
+		if (name == 'levels-label') {
+			this._tiers.levels.querySelector('.tier-name').textContent = this.getAttribute(name) || 'Level';
+		} else if (name == 'view-duration') {
 			this._resetView();
 		} else if (['colormap', 'dynamic-range', 'min-frequency', 'frequency-scale'].includes(name)) {
 			// Only repainting (done as it's drawn).
@@ -343,6 +360,21 @@ export class VoiceSpectrogram extends Base {
 	set phones(phones) {
 		this._phones = phones || [];
 		this._renderTier('phones');
+	}
+
+	// A colour strip above the spectrogram: intervals coloured by a value
+	// from 0 to 1, e.g. how resonant each phone sounds: [{start, end, value,
+	// faded?}]. The colour runs from --vs-level-low to --vs-level-high; the
+	// value shows on hover. faded draws it thinner (e.g. less reliable
+	// values). Name the row with the levels-label attribute.
+	get levels() { return this._levels; }
+	set levels(levels) {
+		this._levels = levels || [];
+		this._renderTier('levels');
+	}
+
+	_items(tier) {
+		return tier == 'levels' ? this._levels : tier == 'words' ? this._words : this._phones;
 	}
 
 	// The playback position in seconds, or null to hide the cursor. The
@@ -481,6 +513,7 @@ export class VoiceSpectrogram extends Base {
 	// computation.
 	_refresh() {
 		this._renderAxis();
+		this._renderTier('levels');
 		this._renderTier('words');
 		this._renderTier('phones');
 		this._draw();
@@ -601,26 +634,48 @@ export class VoiceSpectrogram extends Base {
 		let element = this._tiers[tier];
 		let track = element.querySelector('.track');
 		track.textContent = '';
-		let items = tier == 'words' ? this._words : this._phones;
+		let items = this._items(tier);
 		let duration = this.duration;
 		element.hidden = !items.length;
 		if (!duration) return;
+		let colours = tier == 'levels' ? this._levelColours() : null;
 		items.forEach((item, index) => {
 			let segment = document.createElement('div');
 			segment.className = 'segment';
 			segment.dataset.index = index;
 			if (item.kind) segment.dataset.kind = item.kind;
-			segment.textContent = item.label || '';
-			segment.title = item.label ? `${item.label}: ${item.start.toFixed(2)}–${item.end.toFixed(2)} s` : '';
+			let time = `${item.start.toFixed(2)}–${item.end.toFixed(2)} s`;
+			if (colours) {
+				let value = Math.min(1, Math.max(0, item.value));
+				let [low, high] = colours;
+				segment.style.background = `rgb(${low.map((c, i) => Math.round(c + (high[i] - c) * value))})`;
+				if (item.faded) segment.dataset.faded = '';
+				segment.title = `${Math.round(value * 100)}%: ${time}`;
+			} else {
+				segment.textContent = item.label || '';
+				segment.title = item.label ? `${item.label}: ${time}` : '';
+			}
 			track.appendChild(segment);
 		});
 		this._layout();
 	}
 
+	// The levels row's colours, [r, g, b] for 0 and 1: the --vs-level-low and
+	// --vs-level-high properties, by default the blue and red-orange of the
+	// gender voice visualization's resonance axis.
+	_levelColours() {
+		let parse = (name, fallback) => {
+			let value = getComputedStyle(this).getPropertyValue(name).trim();
+			let match = value.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+			return match ? match.slice(1).map(hex => parseInt(hex, 16)) : fallback;
+		};
+		return [parse('--vs-level-low', [0, 100, 255]), parse('--vs-level-high', [255, 40, 0])];
+	}
+
 	// Position the intervals, the overview and the cursor for the view.
 	_layout() {
 		for (let [tier, element] of Object.entries(this._tiers)) {
-			let items = tier == 'words' ? this._words : this._phones;
+			let items = this._items(tier);
 			for (let segment of element.querySelectorAll('.segment')) {
 				let item = items[segment.dataset.index];
 				let left = this._fraction(item.start), right = this._fraction(item.end);
@@ -648,11 +703,12 @@ export class VoiceSpectrogram extends Base {
 		this._cursor.style.display = fraction >= 0 && fraction <= 1 ? 'block' : 'none';
 		this._cursor.style.left = `${fraction * 100}%`;
 		for (let [tier, element] of Object.entries(this._tiers)) {
-			let items = tier == 'words' ? this._words : this._phones;
+			let items = this._items(tier);
 			for (let segment of element.querySelectorAll('.segment')) {
 				let item = items[segment.dataset.index];
+				let meaningful = tier == 'levels' || !!item.label;
 				segment.classList.toggle('current',
-					visible && !!item.label && item.start <= time && time < item.end);
+					visible && meaningful && item.start <= time && time < item.end);
 			}
 		}
 	}

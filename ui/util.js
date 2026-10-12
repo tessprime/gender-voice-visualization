@@ -191,9 +191,11 @@ function spectrogramControls(view, idPrefix) {
 
 
 // A clip's aligned words and phones as intervals ({start, end, label},
-// plus kind for phones), as <voice-spectrogram> takes them. Each ends where
-// the next begins; the last at the end of the audio. Silences get an empty
-// label.
+// plus kind for phones), as <voice-spectrogram> takes them, and each
+// measured phone's resonance as levels (vowels at full strength; other
+// phones and outliers faded, since their formants are less meaningful).
+// Each interval ends where the next begins; the last at the end of the
+// audio. Silences get an empty label.
 const SILENCE_LABELS = ['', 'sil', 'sp', '<eps>'];
 function alignedIntervals(clip, duration) {
 	let phones = (clip.phones || []).map((phone, index, all) => ({
@@ -213,7 +215,16 @@ function alignedIntervals(clip, duration) {
 			words.push({start: phone.start, end: phone.end, label: word ? word.word : '', wordIndex: phone.wordIndex});
 		}
 	}
-	return {words, phones};
+	let levels = [];
+	for (let [index, phone] of phones.entries()) {
+		let measured = clip.phones[index];
+		if (measured.resonance == null || !phone.label) continue;
+		levels.push({
+			start: phone.start, end: phone.end, value: measured.resonance,
+			faded: phone.kind != 'vowel' || !!measured.outlier,
+		});
+	}
+	return {words, phones, levels};
 }
 
 

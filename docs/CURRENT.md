@@ -121,6 +121,12 @@ to be reused in another app (Next.js). See its README.
        both spectrograms have Scale / From / Up to menus
        (`spectrogramControls()` in util.js); the recording view starts on
        log 75-1000 Hz, the details view on linear 0-5000 Hz.
+   [x] Resonance strip above the details spectrogram: each phone's
+       resonance as a colour from the voice graph's blue to red-orange
+       (no numbers; the value shows on hover). Vowels full height;
+       consonants and outliers thinner, since their formants mean less
+       (thinner rather than translucent, which made them look mid-range).
+       Generic in the component: `levels` + `levels-label`.
 5. [ ] Formant overlays, computing in a worker (switching scales blocks
        for ~1 s on long clips), pinch-zoom on touch screens; fix the
        octave jumps (smoothing, or voicemeasure's Praat pitch as the

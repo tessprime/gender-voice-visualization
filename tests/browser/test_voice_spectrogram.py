@@ -59,7 +59,8 @@ def test_highlights_the_word_and_phone_at_the_cursor(demo):
     current = demo.evaluate("""() => {
         const view = document.querySelector('#dark');
         view.currentTime = 1.3;
-        return Array.from(view.shadowRoot.querySelectorAll('.segment.current')).map(s => s.textContent);
+        return Array.from(view.shadowRoot.querySelectorAll('.words .segment.current, .phones .segment.current'))
+            .map(s => s.textContent);
     }""")
     assert current == ['/i/', 'I']
 
@@ -98,7 +99,8 @@ def test_properties_set_before_the_element_is_defined_apply(browser, repo_url):
         view.words = [{start: 0, end: 1, label: 'early'}];
         view.currentTime = .5;
         await import('./voice-spectrogram.js');
-        return Array.from(view.shadowRoot.querySelectorAll('.segment.current')).map(s => s.textContent);
+        return Array.from(view.shadowRoot.querySelectorAll('.words .segment.current, .phones .segment.current'))
+            .map(s => s.textContent);
     }""")
     page.close()
     assert labels == ['early']
@@ -288,3 +290,18 @@ def test_log_axis_defaults_its_minimum(demo):
         return view.frequencyScale;
     }""")
     assert scale == {'min': 75, 'max': 5000, 'log': True}
+
+
+def test_levels_strip_colours_each_interval_by_its_value(demo):
+    segments = demo.evaluate("""() => {
+        const view = document.querySelector('#dark');
+        view.currentTime = 1.3;
+        return Array.from(view.shadowRoot.querySelectorAll('.levels .segment')).map(s => ({
+            text: s.textContent, colour: s.style.background, current: s.classList.contains('current')}));
+    }""")
+    # The demo's levels: 0.3, 0.8, 0.55, between blue (0, 100, 255) and
+    # red-orange (255, 40, 0); colour only, no text.
+    assert [s['text'] for s in segments] == ['', '', '']
+    assert segments[0]['colour'] == 'rgb(77, 82, 179)'
+    assert segments[1]['colour'] == 'rgb(204, 52, 51)'
+    assert [s['current'] for s in segments] == [False, True, False]

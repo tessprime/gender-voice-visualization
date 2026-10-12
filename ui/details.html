@@ -85,7 +85,7 @@ td.highlight {
 #preview-spectrogram {
 	margin: 1em 0 .25em;
 	--vs-height: 160px;
-	--vs-axis-width: 3.4em;
+	--vs-axis-width: 4.6em;
 	--vs-border: var(--chrome-border);
 }
 </style>
@@ -131,7 +131,7 @@ td.highlight {
 			</tr>
 		</table>
 		<br>
-		<voice-spectrogram id="preview-spectrogram" view-duration="6"></voice-spectrogram>
+		<voice-spectrogram id="preview-spectrogram" view-duration="6" levels-label="Resonance"></voice-spectrogram>
 		<div>
 			<label for="preview-transcript">Transcript</label>:
 			<span id='preview-transcript'></span>
@@ -222,14 +222,14 @@ globalState.render(['previewClip'], current => {
 	let clip = current.previewClip;
 	if (clip == spectrogramClip) return;
 	spectrogramClip = clip;
-	Object.assign(previewSpectrogram, {audio: null, words: [], phones: [], currentTime: null});
+	Object.assign(previewSpectrogram, {audio: null, words: [], phones: [], levels: [], currentTime: null});
 	clearTimeout(spectrogramTimer);
 	if (!clip || !clip.audio || !clip.phones) return;
 	// Hovering across the graph changes the clip often; wait for it to settle.
 	spectrogramTimer = setTimeout(() => decodeClipAudio(clip).then(audio => {
 		if (spectrogramClip != clip) return;
-		let {words, phones} = alignedIntervals(clip, audio.duration);
-		Object.assign(previewSpectrogram, {audio, words, phones});
+		let {words, phones, levels} = alignedIntervals(clip, audio.duration);
+		Object.assign(previewSpectrogram, {audio, words, phones, levels});
 		updateSpectrogramCursor();
 	}).catch(error => console.error('Could not draw the spectrogram:', error)), 200);
 });

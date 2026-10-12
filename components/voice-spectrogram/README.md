@@ -59,6 +59,7 @@ matplotlib, whose authors dedicated them to the public domain (CC0).
 | `duration` | number (read-only) | The recording's length. |
 | `viewStart`, `viewEnd` | number (read-only) | The time range shown. Change it with `setView(start, end)` (`end` null keeps the length). |
 | `frequencyScale` | `{min, max, log}` (read-only) | The frequency axis in effect. |
+| `levels` | `[{start, end, value, faded?}]` | A colour strip above the spectrogram: each interval coloured by `value` (0–1) from `--vs-level-low` to `--vs-level-high` (default blue to red-orange), the value shown on hover; `faded` ones are drawn thinner. Name it with the `levels-label` attribute. The app uses it for each phone's resonance. |
 | `pitchTrack` | `[{time, hz}]` | The pitch drawn over the spectrogram (`hz` null when unvoiced). Computed from the audio (YIN, as the live view) unless you set your own, e.g. from a more accurate analysis. |
 | `showPitch` | boolean (read-only) | Whether the pitch is drawn (see `show-pitch`). |
 
@@ -113,9 +114,10 @@ CSS custom properties on the element (or any ancestor):
 `--vs-height` (spectrogram height, default 200px), `--vs-tier-height`,
 `--vs-axis-width`, `--vs-background`, `--vs-text`, `--vs-border`,
 `--vs-hover`, `--vs-cursor`, `--vs-current` and `--vs-current-text`
-(highlighted interval), `--vs-vowel`, `--vs-pitch`, `--vs-overview` and
+(highlighted interval), `--vs-vowel`, `--vs-pitch`, `--vs-level-low`,
+`--vs-level-high` and `--vs-levels-height` (the levels strip), `--vs-overview` and
 `--vs-overview-height`. Parts for `::part()`: `plot`, `canvas`, `axis`,
-`cursor`, `words`, `phones`, `overview`.
+`cursor`, `levels`, `words`, `phones`, `overview`.
 
 ## `<voice-live-spectrogram>`
 

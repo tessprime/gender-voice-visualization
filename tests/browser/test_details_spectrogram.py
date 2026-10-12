@@ -47,7 +47,8 @@ def test_points_at_the_vowel_a_constellation_plays(details):
                            CLIP).as_element().hover()
     details.locator('.constellation .vowel-dot', has_text='AE (cat)').click()
     details.wait_for_function("document.querySelector('.vowel-instance.current')")
-    current = spectrogram(details, "Array.from(view.shadowRoot.querySelectorAll('.segment.current')).map(s => s.textContent)")
+    current = spectrogram(details, "Array.from(view.shadowRoot.querySelectorAll("
+                                   "'.words .segment.current, .phones .segment.current')).map(s => s.textContent)")
     assert current[1] == 'AE1'
 
 
@@ -65,3 +66,12 @@ def test_log_scale_menu(details):
     assert details.input_value('#preview-min-frequency') == '75'
     details.select_option('#preview-min-frequency', '100')
     assert spectrogram(details, 'view.frequencyScale.min') == 100
+
+
+def test_resonance_strip_above_the_spectrogram(details):
+    levels = spectrogram(details, "view.levels")
+    vowels = [level for level in levels if not level['faded']]
+    assert len(vowels) > 50
+    assert all(0 <= level['value'] <= 1 for level in levels)
+    label = spectrogram(details, "view.shadowRoot.querySelector('.levels .tier-name').textContent")
+    assert label == 'Resonance'
