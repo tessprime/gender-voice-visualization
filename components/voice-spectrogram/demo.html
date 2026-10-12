@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>voice-spectrogram demo</title>
+<style>
+	body { font-family: system-ui, sans-serif; margin: 1em; background: #222; color: #eee; }
+	voice-spectrogram { margin: 1em 0; }
+	.light { background: #fff; color: #111; padding: .5em; }
+</style>
+</head>
+<body>
+<h1>&lt;voice-spectrogram&gt;</h1>
+<p>
+	<button id="synthetic">Synthetic vowels</button>
+	<label>or a recording: <input type="file" id="file" accept="audio/*"></label>
+	<button id="play" disabled>Play</button>
+</p>
+<voice-spectrogram id="dark"></voice-spectrogram>
+<div class="light">
+	<voice-spectrogram id="light" colormap="gray"></voice-spectrogram>
+</div>
+<p id="log"></p>
+
+<h2>&lt;voice-live-spectrogram&gt;</h2>
+<p>
+	<button id="live-mic">Microphone</button>
+	<button id="live-tone">Test voice (gliding 120→280 Hz)</button>
+	<button id="live-stop">Stop</button>
+	<label>Show up to
+		<select id="live-scale">
+			<option>500</option><option selected>1000</option><option>2000</option><option>5000</option>
+		</select> Hz</label>
+</p>
+<voice-live-spectrogram id="live"></voice-live-spectrogram>
+
+<script type="module">
+import './voice-spectrogram.js';
+
+const views = [document.querySelector('#dark'), document.querySelector('#light')];
+const log = document.querySelector('#log');
+let context, buffer, source, startedAt;
+
+// Three synthetic "vowels": a 140 Hz voice whose harmonics are shaped by
+// two formants (roughly /a/, /i/, /u/), with short silences between.
+function synthetic() {
+	const rate = 16000, vowels = [
+		{label: 'a', start: .2, end: .8, formants: [800, 1200]},
+		{label: 'i', start: 1.0, end: 1.6, formants: [300, 2300]},
+		{label: 'u', start: 1.8, end: 2.4, formants: [320, 800]},
+	];
+	const samples = new Float32Array(Math.round(2.6 * rate));
+	for (const vowel of vowels) {
+		for (let i = Math.round(vowel.start * rate); i < vowel.end * rate; i++) {
+			const t = i / rate;
+			let value = 0;
+			for (let h = 1; h * 140 < 5000; h++) {
+				const f = h * 140;
+				const gain = vowel.formants.reduce((sum, formant) => sum + 1 / (1 + ((f - formant) / 120) ** 2), 0);
+				value += gain * Math.sin(2 * Math.PI * f * t) / h ** .5;
+			}
+			samples[i] = value * .1;
+		}
+	}
+	const words = vowels.map(v => ({start: v.start, end: v.end, label: `/${v.label}/`}));
+	const phones = vowels.map(v => ({start: v.start, end: v.end, label: v.label.toUpperCase(), kind: 'vowel'}));
+	return {audio: {samples, sampleRate: rate}, words, phones};
+}
+
+function show({audio, words, phones}) {
+	for (const view of views) {
+		view.audio = audio;
+		view.words = words;
+		view.phones = phones;
+		view.currentTime = null;
+	}
+	context = context || new AudioContext();
+	if (audio.samples) {
+		buffer = context.createBuffer(1, audio.samples.length, audio.sampleRate);
+		buffer.copyToChannel(audio.samples, 0);
+	} else {
+		buffer = audio;
+	}
+	document.querySelector('#play').disabled = false;
+}
+
+document.querySelector('#synthetic').addEventListener('click', () => show(synthetic()));
+document.querySelector('#file').addEventListener('change', async event => {
+	context = context || new AudioContext();
+	const audio = await context.decodeAudioData(await event.target.files[0].arrayBuffer());
+	show({audio, words: [], phones: []});
+});
+
+function play(from = 0) {
+	if (source) source.stop();
+	source = context.createBufferSource();
+	source.buffer = buffer;
+	source.connect(context.destination);
+	source.start(0, from);
+	startedAt = context.currentTime - from;
+	const tick = () => {
+		const time = context.currentTime - startedAt;
+		for (const view of views) view.currentTime = time < buffer.duration ? time : null;
+		if (time < buffer.duration) requestAnimationFrame(tick);
+	};
+	tick();
+}
+document.querySelector('#play').addEventListener('click', () => play());
+for (const view of views) {
+	view.addEventListener('seek', event => {
+		const {time, segment} = event.detail;
+		log.textContent = `seek to ${time.toFixed(3)} s` + (segment ? ` (${segment.tier} "${segment.label}")` : '');
+		if (buffer) play(time);
+	});
+}
+
+show(synthetic());
+
+// The live view.
+import './voice-live-spectrogram.js';
+const live = document.querySelector('#live');
+let toneContext;
+document.querySelector('#live-mic').addEventListener('click', async () => {
+	live.stream = await navigator.mediaDevices.getUserMedia({audio: true});
+});
+// A buzzy "voice" (sawtooth through a vowel-ish filter) whose pitch glides
+// up and down, as a stream.
+window.startTestVoice = () => {
+	toneContext = toneContext || new AudioContext();
+	const voice = toneContext.createOscillator();
+	voice.type = 'sawtooth';
+	const now = toneContext.currentTime;
+	voice.frequency.setValueAtTime(120, now);
+	for (let i = 0; i < 20; i++) {
+		voice.frequency.linearRampToValueAtTime(i % 2 ? 120 : 280, now + 2 * (i + 1));
+	}
+	const formant = toneContext.createBiquadFilter();
+	formant.type = 'bandpass';
+	formant.frequency.value = 700;
+	formant.Q.value = 1;
+	const gain = toneContext.createGain();
+	gain.gain.value = .3;
+	const destination = toneContext.createMediaStreamDestination();
+	voice.connect(formant).connect(gain).connect(destination);
+	voice.start();
+	return destination.stream;
+};
+document.querySelector('#live-tone').addEventListener('click', () => { live.stream = startTestVoice(); });
+document.querySelector('#live-stop').addEventListener('click', () => { live.stream = null; });
+document.querySelector('#live-scale').addEventListener('change', event => live.setAttribute('max-frequency', event.target.value));
+live.addEventListener('scalechange', event => { document.querySelector('#live-scale').value = event.detail.maxFrequency; });
+</script>
+</body>
+</html>

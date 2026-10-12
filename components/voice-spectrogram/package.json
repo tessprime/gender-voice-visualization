@@ -1,0 +1,24 @@
+{
+  "name": "voice-spectrogram",
+  "version": "0.1.0",
+  "description": "Framework-free web components for speech spectrograms with aligned words and phones",
+  "license": "MIT",
+  "type": "module",
+  "main": "voice-spectrogram.js",
+  "exports": {
+    ".": "./voice-spectrogram.js",
+    "./live": "./voice-live-spectrogram.js",
+    "./spectrogram.js": "./spectrogram.js",
+    "./pitch.js": "./pitch.js"
+  },
+  "files": [
+    "*.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "./voice-spectrogram.js",
+    "./voice-live-spectrogram.js"
+  ],
+  "private": true
+}

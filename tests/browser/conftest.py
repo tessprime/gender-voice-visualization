@@ -59,6 +59,17 @@ def site_url():
 
 
 @pytest.fixture(scope='session')
+def repo_url():
+    """The repository itself, served as static files, for testing components
+    on their own (components/*/demo.html)."""
+    handler = functools.partial(QuietHandler, directory=str(REPO))
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f'http://127.0.0.1:{server.server_port}/'
+    server.shutdown()
+
+
+@pytest.fixture(scope='session')
 def playwright_instance():
     with sync_playwright() as p:
         yield p
