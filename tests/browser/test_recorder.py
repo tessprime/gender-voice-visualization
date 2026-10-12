@@ -44,5 +44,8 @@ def test_shows_the_live_spectrogram_while_recording(page, browser_name):
     labels = page.evaluate("Array.from(document.querySelector('#live-spectrogram').shadowRoot"
                            ".querySelectorAll('.axis span')).map(s => s.textContent)")
     assert labels[-1] == '500 Hz'
+    # The recording view starts on a log axis from 75 Hz.
+    assert page.evaluate("document.querySelector('#live-spectrogram').frequencyScale") == \
+        {'min': 75, 'max': 500, 'log': True}
     assert page.evaluate("!!document.querySelector('#live-spectrogram')._history")
     assert page.log.errors == []

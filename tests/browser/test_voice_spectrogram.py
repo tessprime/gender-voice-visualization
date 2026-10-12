@@ -259,3 +259,32 @@ def test_ctrl_wheel_over_the_axis_changes_the_scale(demo):
     # Time zoom is unchanged.
     assert demo.evaluate("[document.querySelector('#dark').viewStart, document.querySelector('#dark').viewEnd]") \
         == [0, pytest.approx(2.6)]
+
+
+def test_log_axis_from_a_minimum(demo):
+    result = demo.evaluate("""async () => {
+        const view = document.querySelector('#dark');
+        view.setAttribute('max-frequency', '1000');
+        await new Promise(r => view.addEventListener('render', r, {once: true}));
+        let renders = 0;
+        view.addEventListener('render', () => renders++);
+        view.setAttribute('frequency-scale', 'log');
+        view.setAttribute('min-frequency', '75');
+        await new Promise(r => setTimeout(r, 50));
+        const labels = Array.from(view.shadowRoot.querySelectorAll('.axis span')).map(s => s.textContent);
+        return {renders, scale: view.frequencyScale, labels};
+    }""")
+    assert result['renders'] == 0          # repainted, not recomputed
+    assert result['scale'] == {'min': 75, 'max': 1000, 'log': True}
+    # 75 Hz would crowd 100 Hz, so the axis starts labelling at 100.
+    assert result['labels'][0] == '100 Hz' and result['labels'][-1] == '1 kHz'
+    assert '150 Hz' in result['labels'] and '75 Hz' not in result['labels']
+
+
+def test_log_axis_defaults_its_minimum(demo):
+    scale = demo.evaluate("""() => {
+        const view = document.querySelector('#dark');
+        view.setAttribute('frequency-scale', 'log');
+        return view.frequencyScale;
+    }""")
+    assert scale == {'min': 75, 'max': 5000, 'log': True}

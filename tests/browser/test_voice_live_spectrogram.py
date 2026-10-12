@@ -1,6 +1,7 @@
 """<voice-live-spectrogram> on its own, fed from Web Audio streams (no
 microphone needed)."""
 
+import math
 import subprocess
 
 import pytest
@@ -62,16 +63,36 @@ def test_a_tone_is_drawn_at_its_frequency(demo):
         await new Promise(r => setTimeout(r, 1500));
         live.stream = null;
         // The brightest row of the newest column, as a frequency.
+        const {frequencyAt} = await import('./spectrogram.js');
         const h = live._history;
-        const column = h.context.getImageData((h.write + h.columns - 2) % h.columns, 0, 1, h.bins).data;
+        const rows = h.image.height;
+        const column = h.context.getImageData((h.write + h.columns - 2) % h.columns, 0, 1, rows).data;
         let best = 0, bestValue = -1;
-        for (let y = 0; y < h.bins; y++) {
+        for (let y = 0; y < rows; y++) {
             const value = column[y * 4] + column[y * 4 + 1] + column[y * 4 + 2];
             if (value > bestValue) { bestValue = value; best = y; }
         }
-        return (h.bins - 1 - best) * h.binHz;
+        return frequencyAt(1 - (best + .5) / rows, live.frequencyScale);
     }""")
     assert row == pytest.approx(300, abs=10)
+
+
+def test_log_axis_puts_octaves_at_equal_heights(demo):
+    result = demo.evaluate("""async () => {
+        const live = document.querySelector('#live');
+        live.setAttribute('frequency-scale', 'log');
+        live.setAttribute('min-frequency', '100');
+        live.setAttribute('max-frequency', '800');
+        const position = label => parseFloat(Array.from(live.shadowRoot.querySelectorAll('.axis span'))
+            .find(s => s.textContent == label).style.top);
+        return {scale: live.frequencyScale, gaps: [position('100 Hz') - position('200 Hz'),
+                                                   position('200 Hz') - position('500 Hz')]};
+    }""")
+    assert result['scale'] == {'min': 100, 'max': 800, 'log': True}
+    # 100-800 Hz is 3 octaves: an octave takes a third of the height, and
+    # 200-500 Hz log2(2.5) thirds.
+    assert result['gaps'][0] == pytest.approx(100 / 3, abs=0.5)
+    assert result['gaps'][1] == pytest.approx(100 / 3 * math.log2(2.5), abs=0.5)
 
 
 def test_changing_the_scale_keeps_the_picture(demo):

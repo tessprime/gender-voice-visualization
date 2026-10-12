@@ -7,8 +7,9 @@
 // Framework-free custom element; see README.md for the API. Set `stream`
 // to a MediaStream to start, and to null to stop (the picture stays).
 
-import {SpectrumAnalyzer, colormap, paintColumns, COMPUTED_MAX_FREQUENCY, zoomedScale,
-	renderFrequencyAxis, Decimator, ANALYSIS_RATE, drawPitch} from './spectrogram.js';
+import {SpectrumAnalyzer, colormap, COMPUTED_MAX_FREQUENCY, IMAGE_ROWS, zoomedScale,
+	renderFrequencyAxis, Decimator, ANALYSIS_RATE, drawPitch, drawGrid,
+	frequencyScale, rowBins, paintColumn} from './spectrogram.js';
 import {PitchTracker} from './pitch.js';
 
 const Base = typeof HTMLElement == 'undefined' ? class {} : HTMLElement;
@@ -85,8 +86,6 @@ const TEMPLATE = `
 		transform: translateY(-50%);
 		white-space: nowrap;
 	}
-	.axis span:first-child { transform: translateY(-100%); }
-	.axis span.top { transform: none; }
 	.readout {
 		position: absolute;
 		top: .3em;
@@ -108,7 +107,8 @@ const TEMPLATE = `
 
 export class VoiceLiveSpectrogram extends Base {
 	static get observedAttributes() {
-		return ['max-frequency', 'window-length', 'dynamic-range', 'colormap', 'duration', 'min-pitch', 'max-pitch'];
+		return ['max-frequency', 'min-frequency', 'frequency-scale', 'window-length', 'dynamic-range',
+			'colormap', 'duration', 'min-pitch', 'max-pitch'];
 	}
 
 	constructor() {
@@ -130,7 +130,7 @@ export class VoiceLiveSpectrogram extends Base {
 		this.addEventListener('wheel', event => {
 			if (!event.ctrlKey) return;
 			event.preventDefault();
-			let value = zoomedScale(this.maxFrequency, event.deltaY);
+			let value = Math.max(zoomedScale(this.maxFrequency, event.deltaY), Math.ceil(this.frequencyScale.min / 50 + 1) * 50);
 			if (value != this.maxFrequency) {
 				this.setAttribute('max-frequency', value);
 				this.dispatchEvent(new CustomEvent('scalechange', {detail: {maxFrequency: value}}));
@@ -160,8 +160,8 @@ export class VoiceLiveSpectrogram extends Base {
 	}
 
 	attributeChangedCallback(name) {
-		if (['max-frequency', 'dynamic-range', 'colormap'].includes(name)) {
-			// Display only; dynamic range and colours apply to new columns.
+		if (['max-frequency', 'min-frequency', 'frequency-scale', 'dynamic-range', 'colormap'].includes(name)) {
+			// Display only: what's been drawn is repainted from the kept spectra.
 			this._renderAxis();
 			this._draw();
 		} else if (this._session) {
@@ -188,6 +188,13 @@ export class VoiceLiveSpectrogram extends Base {
 	get pitch() { return this._pitch; }
 
 	get maxFrequency() { return this._number('max-frequency', DEFAULTS.maxFrequency); }
+
+	// The frequency axis: {min, max, log} (the min-frequency, max-frequency
+	// and frequency-scale attributes).
+	get frequencyScale() {
+		return frequencyScale(this._number('min-frequency', 0), this.maxFrequency,
+			this.getAttribute('frequency-scale') == 'log');
+	}
 
 	// Forget what's been drawn.
 	clear() {
@@ -272,8 +279,9 @@ export class VoiceLiveSpectrogram extends Base {
 		this._draw();
 	}
 
-	// The ring of columns drawn: one pixel column per 10 ms, as many as the
-	// visible duration holds. Kept across stop/start, so a recording's
+	// The ring of columns drawn: one per 10 ms, as many as the visible
+	// duration holds. It keeps each column's spectrum, so changing the axis or
+	// colours repaints what's there. Kept across stop/start, so a recording's
 	// picture stays until clear().
 	_ensureHistory(analyzer) {
 		let columns = Math.round(this._number('duration', DEFAULTS.duration) / TIME_STEP);
@@ -281,15 +289,49 @@ export class VoiceLiveSpectrogram extends Base {
 		if (h && h.columns == columns && h.bins == analyzer.bins && h.binHz == analyzer.binHz) return;
 		let image = document.createElement('canvas');
 		image.width = columns;
-		image.height = analyzer.bins;
+		image.height = IMAGE_ROWS;
 		this._history = {
 			image, columns, bins: analyzer.bins, binHz: analyzer.binHz,
 			context: image.getContext('2d'),
-			pixels: new ImageData(1, analyzer.bins),
+			spectra: new Float32Array(columns * analyzer.bins),
+			maxDbs: new Float32Array(columns).fill(NaN),  // the colour scale's top, per column; NaN: empty
 			pitch: new Float32Array(columns).fill(NaN),
 			write: 0,            // the next column to fill
 			maxDb: -Infinity,    // loudest recently, for the colour scale
+			paintKey: null,      // the axis and colours the image is painted for
+			rows: null,          // rowBins() for them
+			column: new ImageData(1, IMAGE_ROWS),
 		};
+	}
+
+	_paintKey() {
+		let {min, max, log} = this.frequencyScale;
+		return [min, max, log, this._number('dynamic-range', DEFAULTS.dynamicRange),
+			this.getAttribute('colormap') || DEFAULTS.colormap].join();
+	}
+
+	// Paint column x of the history for the current axis and colours.
+	_paintHistoryColumn(x) {
+		let h = this._history;
+		let pixels = h.column.data;
+		if (isNaN(h.maxDbs[x])) {
+			pixels.fill(0);
+		} else {
+			paintColumn(pixels, 1, 0, h.spectra.subarray(x * h.bins, (x + 1) * h.bins), h.rows, h.maxDbs[x],
+				this._number('dynamic-range', DEFAULTS.dynamicRange),
+				colormap(this.getAttribute('colormap') || DEFAULTS.colormap));
+		}
+		h.context.putImageData(h.column, x, 0);
+	}
+
+	// Bring the image up to date with the axis and colours, if they changed.
+	_repaintHistory() {
+		let h = this._history;
+		let key = this._paintKey();
+		if (h.paintKey == key) return;
+		h.paintKey = key;
+		h.rows = rowBins(this.frequencyScale, h.binHz, h.bins);
+		for (let x = 0; x < h.columns; x++) this._paintHistoryColumn(x);
 	}
 
 	_push(session, chunk) {
@@ -321,10 +363,10 @@ export class VoiceLiveSpectrogram extends Base {
 		// The colour scale follows the loudest recent column, decaying slowly
 		// (about 20 dB in 4 s) so quiet stretches don't all turn bright.
 		h.maxDb = Math.max(loudest, h.maxDb - .05);
-		let range = this._number('dynamic-range', DEFAULTS.dynamicRange);
-		let table = colormap(this.getAttribute('colormap') || DEFAULTS.colormap);
-		paintColumns(h.pixels.data, 1, column, h.bins, 0, 1, h.maxDb, range, table);
-		h.context.putImageData(h.pixels, h.write, 0);
+		h.spectra.set(column, h.write * h.bins);
+		h.maxDbs[h.write] = h.maxDb;
+		this._repaintHistory();
+		this._paintHistoryColumn(h.write);
 		h.pitch[h.write] = pitch == null ? NaN : pitch;
 		h.write = (h.write + 1) % h.columns;
 
@@ -349,26 +391,26 @@ export class VoiceLiveSpectrogram extends Base {
 		if (!h) return;
 
 		// Oldest on the left: the ring from write onwards, then up to write.
-		let maxFrequency = this.maxFrequency;
-		let shownBins = Math.min(h.bins, maxFrequency / h.binHz);
-		let sourceY = h.bins - shownBins;
+		this._repaintHistory();
+		let scale = this.frequencyScale;
 		let columnWidth = width / h.columns;
 		context.imageSmoothingEnabled = true;
 		let older = h.columns - h.write;
-		context.drawImage(h.image, h.write, sourceY, older, shownBins, 0, 0, older * columnWidth, height);
+		context.drawImage(h.image, h.write, 0, older, IMAGE_ROWS, 0, 0, older * columnWidth, height);
 		if (h.write) {
-			context.drawImage(h.image, 0, sourceY, h.write, shownBins, older * columnWidth, 0, h.write * columnWidth, height);
+			context.drawImage(h.image, 0, 0, h.write, IMAGE_ROWS, older * columnWidth, 0, h.write * columnWidth, height);
 		}
+		drawGrid(context, scale, width, height, ratio);
 
 		// The pitch, as dots on the same frequency axis.
 		let colour = getComputedStyle(this).getPropertyValue('--vs-pitch').trim() || '#4dd0ff';
 		let points = [];
 		for (let i = 0; i < h.columns; i++) points.push([(i + .5) * columnWidth, h.pitch[(h.write + i) % h.columns]]);
-		drawPitch(context, points, maxFrequency, height, ratio, colour);
+		drawPitch(context, points, scale, height, ratio, colour);
 	}
 
 	_renderAxis() {
-		renderFrequencyAxis(this._axis, this.maxFrequency);
+		renderFrequencyAxis(this._axis, this.frequencyScale);
 	}
 }
 

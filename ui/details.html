@@ -74,11 +74,13 @@ td.highlight {
 #delete-confirm {
 	transition: .3s all;
 }
-.details .spectrogram-scale {
-	display: block;
+.details .spectrogram-controls {
 	margin-bottom: 1em;
 	font-size: small;
+}
+.details .spectrogram-controls label {
 	font-weight: normal;
+	white-space: nowrap;
 }
 #preview-spectrogram {
 	margin: 1em 0 .25em;
@@ -130,14 +132,6 @@ td.highlight {
 		</table>
 		<br>
 		<voice-spectrogram id="preview-spectrogram" view-duration="6"></voice-spectrogram>
-		<label class="spectrogram-scale">Show up to
-			<select id="preview-max-frequency">
-				<option value="500">500 Hz</option>
-				<option value="1000">1000 Hz</option>
-				<option value="2000">2000 Hz</option>
-				<option value="5000" selected>5000 Hz</option>
-			</select>
-		</label>
 		<div>
 			<label for="preview-transcript">Transcript</label>:
 			<span id='preview-transcript'></span>
@@ -253,18 +247,8 @@ function updateSpectrogramCursor() {
 }
 globalState.render(['playbackTime', 'playingClip', 'spokenWord'], updateSpectrogramCursor);
 
-// Its frequency scale: the menu, or ctrl+wheel over its frequency axis.
-$('#preview-max-frequency').addEventListener('change', evt => {
-	previewSpectrogram.setAttribute('max-frequency', evt.target.value);
-});
-previewSpectrogram.addEventListener('scalechange', evt => {
-	let select = $('#preview-max-frequency');
-	let value = String(evt.detail.maxFrequency);
-	if (!Array.from(select.options).some(option => option.value == value)) {
-		select.add(new Option(`${value} Hz`, value));
-	}
-	select.value = value;
-});
+// Its frequency axis menus.
+previewSpectrogram.after(spectrogramControls(previewSpectrogram, 'preview'));
 
 previewSpectrogram.addEventListener('seek', event => {
 	let clip = spectrogramClip;

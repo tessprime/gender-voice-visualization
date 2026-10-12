@@ -58,6 +58,7 @@ matplotlib, whose authors dedicated them to the public domain (CC0).
 | `currentTime` | number or `null` | Draws the cursor and highlights the word and phone under it. |
 | `duration` | number (read-only) | The recording's length. |
 | `viewStart`, `viewEnd` | number (read-only) | The time range shown. Change it with `setView(start, end)` (`end` null keeps the length). |
+| `frequencyScale` | `{min, max, log}` (read-only) | The frequency axis in effect. |
 | `pitchTrack` | `[{time, hz}]` | The pitch drawn over the spectrogram (`hz` null when unvoiced). Computed from the audio (YIN, as the live view) unless you set your own, e.g. from a more accurate analysis. |
 | `showPitch` | boolean (read-only) | Whether the pitch is drawn (see `show-pitch`). |
 
@@ -66,6 +67,8 @@ matplotlib, whose authors dedicated them to the public domain (CC0).
 | Attribute | Default | |
 |---|---|---|
 | `max-frequency` | `5000` | Top of the frequency axis, Hz. |
+| `min-frequency` | `0` (linear), `75` (log) | Bottom of the frequency axis, Hz. |
+| `frequency-scale` | `linear` | `linear` or `log`. A log axis gives equal height to each octave, so the pitch and its first harmonics get much more room. |
 | `window-length` | automatic | Analysis window, s. By default it follows the scale: up to 2 kHz, 0.025 s ("narrowband", ~52 Hz resolution, separate harmonics); above, 0.005 s ("broadband", ~260 Hz, formants). Set it to fix the window. |
 | `show-pitch` | automatic | `on` or `off`; by default the pitch is drawn at scales up to 2 kHz. |
 | `dynamic-range` | `70` | dB below the loudest point that still shows. |
@@ -84,7 +87,9 @@ stays in sight.
 The defaults follow Praat's spectrogram (Gaussian window, +6 dB/octave
 pre-emphasis). Each analysis is computed once, when first needed (the
 narrowband one from audio decimated to ~16 kHz, up to 2 kHz; the broadband
-one up to 5 kHz), so moving between scales afterwards only redraws.
+one up to 5 kHz), so moving between scales afterwards only repaints (tens
+of ms): the image is painted for the axis, interpolating between frequency
+bins, with faint gridlines at the labels.
 
 ### Events
 
@@ -143,12 +148,13 @@ boundaries.
 |---|---|
 | `stream` | A `MediaStream` to analyse, or `null` to stop. |
 | `pitch` | The latest pitch in Hz, or `null` (unvoiced or stopped). |
-| `maxFrequency` | The top of the scale (read-only; set the attribute). |
+| `maxFrequency`, `frequencyScale` | The axis (read-only; set the attributes). |
 | `clear()` | Forget what's been drawn. |
 
 | Attribute | Default | |
 |---|---|---|
 | `max-frequency` | `1000` | Top of the frequency axis, Hz (100–5000). |
+| `min-frequency`, `frequency-scale` | `0`, `linear` | As for `<voice-spectrogram>`. Changing them (or the colours) repaints what's already drawn. |
 | `window-length` | `0.025` | Analysis window, s. Longer than `<voice-spectrogram>`'s, so the harmonics separate. |
 | `dynamic-range` | `60` | dB below the loudest recent sound that still shows. |
 | `duration` | `5` | Seconds visible. |

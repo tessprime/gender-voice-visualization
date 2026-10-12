@@ -167,21 +167,62 @@ export function colormap(name) {
 	return colormapCache.get(name);
 }
 
-// Paints spectrogram columns into RGBA pixels: one pixel per column and per
-// bin, highest frequency at the top. pixels is width × bins × 4 bytes;
-// columns go to x = firstX onwards.
-export function paintColumns(pixels, width, columnsData, bins, firstX, count, maxDb, dynamicRange, table) {
-	for (let i = 0; i < count; i++) {
-		let x = firstX + i;
-		for (let k = 0; k < bins; k++) {
-			let value = (columnsData[i * bins + k] - (maxDb - dynamicRange)) / dynamicRange;
-			let index = Math.round(Math.min(1, Math.max(0, value)) * 255) * 3;
-			let p = ((bins - 1 - k) * width + x) * 4;
-			pixels[p] = table[index];
-			pixels[p + 1] = table[index + 1];
-			pixels[p + 2] = table[index + 2];
-			pixels[p + 3] = 255;
+// A frequency axis: {min, max, log}, in Hz. On a log axis, equal ratios get
+// equal height (an octave is an octave), which gives the low frequencies
+// where pitch and its first harmonics are much more room. A log axis can't
+// start at 0, so min is at least MIN_LOG_FREQUENCY there.
+export const MIN_LOG_FREQUENCY = 20;
+export const DEFAULT_LOG_MIN = 75;   // Praat's lowest default pitch
+
+export function frequencyScale(min, max, log) {
+	min = log ? Math.max(MIN_LOG_FREQUENCY, min > 0 ? min : DEFAULT_LOG_MIN) : Math.max(0, min || 0);
+	return {min: Math.min(min, max * .9), max, log: !!log};
+}
+
+// Where a frequency falls on the axis, from 0 (bottom) to 1 (top).
+export function frequencyFraction(frequency, scale) {
+	if (scale.log) return Math.log(frequency / scale.min) / Math.log(scale.max / scale.min);
+	return (frequency - scale.min) / (scale.max - scale.min);
+}
+
+export function frequencyAt(fraction, scale) {
+	if (scale.log) return scale.min * (scale.max / scale.min) ** fraction;
+	return scale.min + fraction * (scale.max - scale.min);
+}
+
+// Images are painted for the axis, at this many rows (the canvas scales
+// them to the element's height).
+export const IMAGE_ROWS = 400;
+
+// For each image row, top first, the fractional spectrum bin it shows, or
+// NaN above the last bin.
+export function rowBins(scale, binHz, bins, rows = IMAGE_ROWS) {
+	let map = new Float32Array(rows);
+	for (let r = 0; r < rows; r++) {
+		let bin = frequencyAt(1 - (r + .5) / rows, scale) / binHz;
+		map[r] = bin <= bins - 1 ? bin : NaN;
+	}
+	return map;
+}
+
+// Paint one spectrum (bins dB values) as column x of an RGBA image of the
+// given width, one row per entry of rows (from rowBins()), interpolating
+// between bins: on a log axis the lowest bins span many rows.
+export function paintColumn(pixels, width, x, spectrum, rows, maxDb, dynamicRange, table) {
+	let floor = maxDb - dynamicRange;
+	for (let r = 0; r < rows.length; r++) {
+		let p = (r * width + x) * 4, bin = rows[r];
+		if (isNaN(bin)) {
+			pixels[p + 3] = 0;
+			continue;
 		}
+		let low = Math.floor(bin), t = bin - low;
+		let db = t ? spectrum[low] * (1 - t) + spectrum[low + 1] * t : spectrum[low];
+		let index = Math.round(Math.min(1, Math.max(0, (db - floor) / dynamicRange)) * 255) * 3;
+		pixels[p] = table[index];
+		pixels[p + 1] = table[index + 1];
+		pixels[p + 2] = table[index + 2];
+		pixels[p + 3] = 255;
 	}
 }
 
@@ -233,21 +274,33 @@ export function computePitchTrack(samples, sampleRate, tracker, timeStep = .01) 
 	return track;
 }
 
-// Draw pitch values as dots on a frequency axis from 0 to maxFrequency.
-// points is a list of [x, hz] (canvas pixels, Hz); unvoiced and
-// off-scale values are skipped.
-export function drawPitch(context, points, maxFrequency, height, ratio, colour) {
+// Draw pitch values as dots on the axis. points is a list of [x, hz]
+// (canvas pixels, Hz); unvoiced and off-scale values are skipped.
+export function drawPitch(context, points, scale, height, ratio, colour) {
 	context.fillStyle = colour;
 	context.strokeStyle = 'rgba(0, 0, 0, .7)';
 	context.lineWidth = ratio;
 	let radius = 2 * ratio;
 	for (let [x, hz] of points) {
-		if (!(hz > 0) || hz > maxFrequency) continue;
+		if (!(hz >= scale.min && hz <= scale.max)) continue;
 		context.beginPath();
-		context.arc(x, (1 - hz / maxFrequency) * height, radius, 0, 2 * Math.PI);
+		context.arc(x, (1 - frequencyFraction(hz, scale)) * height, radius, 0, 2 * Math.PI);
 		context.fill();
 		context.stroke();
 	}
+}
+
+// Faint horizontal lines at the axis labels, for reading values off.
+export function drawGrid(context, scale, width, height, ratio) {
+	context.strokeStyle = 'rgba(255, 255, 255, .15)';
+	context.lineWidth = ratio;
+	context.beginPath();
+	for (let {frequency} of frequencyTicks(scale)) {
+		let y = Math.round((1 - frequencyFraction(frequency, scale)) * height) + .5;
+		context.moveTo(0, y);
+		context.lineTo(width, y);
+	}
+	context.stroke();
 }
 
 // The frequency scale. Views compute columns up to at least
@@ -263,26 +316,61 @@ export function zoomedScale(maxFrequency, deltaY) {
 	return Math.round(Math.min(SCALE_LIMITS[1], Math.max(SCALE_LIMITS[0], scaled)) / 50) * 50;
 }
 
-// Labels for a frequency axis from 0 to maxFrequency: about 3-6 round
-// values, as [{frequency, label}].
-export function frequencyTicks(maxFrequency) {
-	let step = [50, 100, 200, 250, 500, 1000, 2000].find(s => maxFrequency / s <= 6) || 5000;
-	let ticks = [];
-	for (let f = 0; f <= maxFrequency + 1e-9; f += step) {
-		ticks.push({frequency: f, label: f >= 1000 ? `${f / 1000} kHz` : `${f} Hz`});
+// Round values to label an axis with: [{frequency, label}], about 3-9 of
+// them. A log axis uses the densest of a few sets of round numbers that
+// fits.
+const LOG_TICKS = [
+	[50, 100, 200, 500, 1000, 2000, 5000],
+	[50, 75, 100, 150, 200, 300, 500, 700, 1000, 1500, 2000, 3000, 5000],
+	[50, 60, 70, 80, 90, 100, 125, 150, 175, 200, 250, 300, 400, 500, 600, 700, 800, 1000,
+		1250, 1500, 2000, 2500, 3000, 4000, 5000],
+];
+export function frequencyTicks(scale) {
+	let label = f => f >= 1000 ? `${f / 1000} kHz` : `${f} Hz`;
+	let inRange = f => f >= scale.min - 1e-9 && f <= scale.max + 1e-9;
+	let frequencies;
+	if (scale.log) {
+		// The densest set that fits with at most one label dropped.
+		for (let set of LOG_TICKS.slice().reverse()) {
+			let candidate = set.filter(inRange);
+			frequencies = spaced(candidate, scale);
+			if (frequencies.length <= 9 && candidate.length - frequencies.length <= 1) break;
+		}
+	} else {
+		let span = scale.max - scale.min;
+		let step = [50, 100, 200, 250, 500, 1000, 2000].find(s => span / s <= 6) || 5000;
+		frequencies = [];
+		for (let f = Math.ceil(scale.min / step) * step; f <= scale.max + 1e-9; f += step) frequencies.push(f);
+		frequencies = spaced(frequencies, scale);
 	}
-	return ticks;
+	return frequencies.map(f => ({frequency: f, label: label(f)}));
+}
+
+// Drop labels that would crowd the one above them, top down: at least a
+// tenth of the height apart, more for a label at the very bottom, which is
+// drawn above its line (e.g. 75 Hz under 100 Hz on a log axis from 75 Hz).
+function spaced(frequencies, scale) {
+	let kept = [];
+	for (let f of frequencies.slice().reverse()) {
+		let fraction = frequencyFraction(f, scale);
+		let gap = fraction < .04 ? .16 : .1;
+		if (!kept.length || frequencyFraction(kept[kept.length - 1], scale) - fraction >= gap) kept.push(f);
+	}
+	return kept.reverse();
 }
 
 // Fill an axis element with frequency labels, for the elements. (The only
 // function here that uses the DOM, and only when called.)
-export function renderFrequencyAxis(axis, maxFrequency) {
+export function renderFrequencyAxis(axis, scale) {
 	axis.textContent = '';
-	for (let {frequency, label} of frequencyTicks(maxFrequency)) {
+	for (let {frequency, label} of frequencyTicks(scale)) {
+		let fraction = frequencyFraction(frequency, scale);
 		let span = document.createElement('span');
 		span.textContent = label;
-		span.style.top = `${(1 - frequency / maxFrequency) * 100}%`;
-		if (frequency > maxFrequency - 1e-9 && frequency > 0) span.classList.add('top');
+		span.style.top = `${(1 - fraction) * 100}%`;
+		// Keep the labels at the ends inside the axis.
+		if (fraction < .04) span.style.transform = 'translateY(-100%)';
+		if (fraction > .96) span.style.transform = 'none';
 		axis.appendChild(span);
 	}
 }

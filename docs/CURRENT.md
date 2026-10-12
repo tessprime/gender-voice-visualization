@@ -111,6 +111,16 @@ to be reused in another app (Next.js). See its README.
        takes 0.9 s to switch the first time.
        Seen: YIN occasionally jumps an octave up for a few frames (e.g.
        Morgan's "I" at ~14 s).
+   [x] Log frequency axis and adjustable minimum (`frequency-scale`,
+       `min-frequency`) on both elements, after Overtone Analyzer's view:
+       each octave gets equal height, so 75-300 Hz (pitch, first
+       harmonics) gets most of the room. Images are painted for the axis
+       (400 rows, interpolating between bins), with gridlines at round
+       labels (thinned so they don't overlap). The live view keeps its raw
+       spectra, so axis and colour changes repaint its history. In the app
+       both spectrograms have Scale / From / Up to menus
+       (`spectrogramControls()` in util.js); the recording view starts on
+       log 75-1000 Hz, the details view on linear 0-5000 Hz.
 5. [ ] Formant overlays, computing in a worker (switching scales blocks
        for ~1 s on long clips), pinch-zoom on touch screens; fix the
        octave jumps (smoothing, or voicemeasure's Praat pitch as the

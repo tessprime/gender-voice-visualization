@@ -140,6 +140,56 @@ function decodeClipAudio(clip) {
 }
 
 
+// Menus for a spectrogram's frequency axis (components/voice-spectrogram):
+// Scale (linear or log), From and Up to, kept in step with its attributes
+// (including ctrl+wheel over it, which changes "Up to"). Returns the element
+// holding them; the menus' ids are idPrefix + '-frequency-scale',
+// '-min-frequency' and '-max-frequency'.
+function spectrogramControls(view, idPrefix) {
+	let controls = document.createElement('div');
+	controls.className = 'spectrogram-controls';
+	let menu = (name, label, options) => {
+		let select = document.createElement('select');
+		select.id = `${idPrefix}-${name}`;
+		for (let [value, text] of options) select.add(new Option(text, value));
+		let wrapper = document.createElement('label');
+		wrapper.append(`${label} `, select);
+		controls.append(wrapper, ' ');
+		return select;
+	};
+	let hz = values => values.map(value => [String(value), `${value} Hz`]);
+	let scale = menu('frequency-scale', 'Scale', [['linear', 'Linear'], ['log', 'Log']]);
+	let from = menu('min-frequency', 'From', hz([0, 50, 75, 100, 150, 200]));
+	let upTo = menu('max-frequency', 'Up to', hz([500, 1000, 2000, 5000]));
+
+	// Select value, adding it to the menu if it isn't there (e.g. from ctrl+wheel).
+	let show = (select, value) => {
+		value = String(value);
+		if (!Array.from(select.options).some(option => option.value == value)) {
+			select.add(new Option(`${value} Hz`, value));
+		}
+		select.value = value;
+	};
+	let log = view.getAttribute('frequency-scale') == 'log';
+	scale.value = log ? 'log' : 'linear';
+	show(from, view.getAttribute('min-frequency') || (log ? 75 : 0));
+	show(upTo, view.getAttribute('max-frequency') || 5000);
+
+	scale.addEventListener('change', () => {
+		view.setAttribute('frequency-scale', scale.value);
+		// A log axis can't start at 0.
+		if (scale.value == 'log' && Number(from.value) <= 0) {
+			from.value = '75';
+			view.setAttribute('min-frequency', '75');
+		}
+	});
+	from.addEventListener('change', () => view.setAttribute('min-frequency', from.value));
+	upTo.addEventListener('change', () => view.setAttribute('max-frequency', upTo.value));
+	view.addEventListener('scalechange', event => show(upTo, event.detail.maxFrequency));
+	return controls;
+}
+
+
 // A clip's aligned words and phones as intervals ({start, end, label},
 // plus kind for phones), as <voice-spectrogram> takes them. Each ends where
 // the next begins; the last at the end of the audio. Silences get an empty
