@@ -53,6 +53,60 @@ WebAssembly. Still needed to replace the server:
       measuring (not aligning, where it caused failures); or keep it off
       and accept the shift.
 
+## Licenses of the reusable parts
+
+- [x] `voicemeasure`: MIT (`LICENSE`, `license = "MIT"`, SPDX headers).
+      Implemented from Praat's documentation, so no GPL code.
+- [x] `voicealign`: "MIT AND Apache-2.0". MIT for our code; the five files
+      ported from Kaldi's C++ (`features.rs`, `model.rs`, `tree.rs`,
+      `align.rs`, `kaldi_io.rs`) stay Apache-2.0, as Kaldi's license
+      requires, with headers saying so. `NOTICE` lists them and credits
+      Kaldi, kalpy and MFA (MIT; `graph.rs` and `lexicon.rs` follow their
+      behaviour). Checked: kalpy and MFA are MIT (their package metadata
+      in the Docker image).
+- [x] `components/voice-spectrogram`: MIT.
+- [ ] `phonealign` (Python): still undecided.
+
+## Goal: reusable spectrogram components (ROADMAP items 1 and 5)
+
+Framework-free web components in `components/voice-spectrogram/`, meant
+to be reused in another app (Next.js). See its README.
+
+1. [x] Shared core (`spectrogram.js`: FFT, Praat-style Gaussian-window
+       spectrogram, colour maps, painting) and `<voice-spectrogram>` for a
+       recording. Checked on synthetic vowels (formant bands where they
+       were synthesised) and Fern's recording (0.2 s for 8 s at 44.1 kHz).
+2. [x] Words and phones rows, cursor with the current word and phone
+       highlighted, `seek` events from clicks. Safe to import during
+       server-side rendering; properties set before the element is defined
+       still apply. 7 tests in `tests/browser/test_voice_spectrogram.py`.
+3. [x] In the app's details panel, 6 s at a time: follows the player and
+       a constellation's vowel playback (cursor on the vowel); clicking
+       plays from there. Computes only while the details tab is visible
+       and 200 ms after the selected clip settles (hovering changes it
+       often). `decodeClipAudio()` moved to util.js, shared with vowel
+       playback; `alignedIntervals()` converts a clip's phones. 4 tests in
+       `tests/browser/test_details_spectrogram.py`.
+   [x] Zoom and scroll, pulled forward from step 5 (a 30 s clip in the
+       ~520 px panel was unreadable): `view-duration`, drag or shift+wheel
+       to scroll, ctrl+wheel/pinch to zoom, an overview strip, paging to
+       follow the cursor. 4 more component tests.
+4. [x] `<voice-live-spectrogram>` in the "Record your voice" option:
+       scrolling spectrogram of the microphone, 0-1000 Hz by default with
+       a "Show up to" menu (500-5000 Hz) and ctrl+wheel; 25 ms window so
+       harmonics separate; pitch by YIN (`pitch.js`) drawn as dots and a
+       number. Columns are computed to 5 kHz so rescaling is instant.
+       Checked: a gliding test voice is tracked within 2% (median); a
+       300 Hz tone draws at 300 Hz; Fern's recording as a fake microphone
+       gives a median 150 Hz (her stored Praat median: 152 Hz). 5
+       component tests, 1 app test.
+5. [ ] Pitch and formant overlays, computing in a worker, pinch-zoom on
+       touch screens.
+- [x] License: MIT, in the component's own `LICENSE` (the rest of the
+      repository stays AGPL-3.0). It can stay in this repository; moving it
+      to its own would make installing it from git easier (npm can't
+      install a subfolder of a git repository).
+
 ## Goal: hear a vowel's variation from the constellation
 
 - [x] Clicking a constellation vowel dot plays the word of each instance

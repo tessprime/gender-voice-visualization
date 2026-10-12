@@ -5,62 +5,17 @@ Ideas for the project and the work each one needs. Items marked
 
 ## 1. Spectrogram with aligned phones and transcript
 
-Show a spectrogram of the clip in the browser, with MFA's phone and word
-boundaries drawn over it and the transcript underneath, so people can
-quickly find and replay any part of a recording.
+Mostly done: `<voice-spectrogram>` (`components/voice-spectrogram/`, MIT,
+reusable) in the details panel, with words and phones rows, playback
+cursor, click to play from a point, zoom and scroll. See docs/CURRENT.md.
 
-### What we have
-
-- MFA's TextGrid has start and end times for every word and phone,
-  silences included, at 10 ms resolution.
-- The browser already has each clip's audio as a data URL (`clip.audio`).
-  This includes the example clips in `resources/*.json`. Their audio is
-  Ogg, despite being labelled `audio/wav`.
-- Each phone has F0-F3 measured at its midpoint, plus its class
-  (vowel/sonorant/obstruent; see `phone_class()` in
-  `acousticgender/library/phones.py`).
-
-### Backend
-
-- [ ] Output phone and word **end** times. `textgrid-formants.praat` reads
-      them but only prints start times, and `phones.parse()` only keeps
-      starts. The frontend currently infers the end from the next phone's
-      start, which won't work for the last one.
-- [ ] Optionally output pitch and formant **tracks** (e.g. every 10 ms)
-      rather than one midpoint sample per phone, to draw continuous
-      contours over the spectrogram. This makes responses bigger; consider
-      a coarser step or a separate request.
-- [ ] Stored clips (examples and users' saved clips) don't have end times.
-      Either derive them on load (start of the next phone; last phone ends
-      at the audio's end) or regenerate the examples (the source audio is
-      embedded in the JSON, so it's possible).
-
-### Frontend
-
-- [ ] Decode the clip audio with `AudioContext.decodeAudioData`.
-- [ ] Compute the spectrogram (short-time FFT, ~25 ms window, ~10 ms hop to
-      match MFA's frames), via an FFT in JS or `OfflineAudioContext` +
-      `AnalyserNode`. Cache the result per clip.
-- [ ] Render to a canvas: time on x, frequency on y (0-5 kHz covers
-      F1-F3), with a perceptual color map that works in light and dark
-      themes.
-- [ ] Overlay phone boundaries and labels, colored by class.
-- [ ] Transcript row underneath: words placed at their aligned times.
-- [ ] Overlay the measured F1-F3 and pitch points (midpoints today,
-      contours if the backend provides tracks).
-- [ ] Sync with playback: a cursor at `playbackTime`, and click a phone
-      or word to seek there.
+- [ ] Overlay the measured pitch and F1-F3 (midpoints today; continuous
+      tracks from voicemeasure would be better).
 - [ ] Link to the voice graph: hovering a phone highlights its dot, and
       hovering a constellation instance highlights its span.
-- [ ] Horizontal zoom and scroll for long clips; layout for narrow screens.
-
-### Open questions
-
-- Where does it go in the layout: under the player, in the details tab, or
-  in its own panel?
-- Should it show the processed audio MFA aligned (16 kHz, noise-reduced)
-  or the original recording? The times match either way, but they look
-  different.
+- [ ] Compute in a worker (~0.7 s on the main thread for a 30 s clip).
+- [ ] Open question: should it show the audio as recorded or after noise
+      reduction (if that comes back)?
 
 ## 2. Run MFA in the browser
 
