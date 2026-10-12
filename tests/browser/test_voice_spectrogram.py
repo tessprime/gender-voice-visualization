@@ -173,18 +173,74 @@ def test_ctrl_wheel_zooms_around_the_pointer(demo):
     assert (after[0] + after[1]) / 2 == pytest.approx((before[0] + before[1]) / 2, abs=0.05)
 
 
-def test_lowering_the_scale_redraws_without_recomputing(demo):
+def test_scale_changes_only_compute_what_is_missing(demo):
     result = demo.evaluate("""async () => {
         const view = document.querySelector('#dark');
         await new Promise(r => view._image ? r() : view.addEventListener('render', r, {once: true}));
         let renders = 0;
         view.addEventListener('render', () => renders++);
-        view.setAttribute('max-frequency', '1000');
-        await new Promise(r => setTimeout(r, 50));
+        const settle = () => new Promise(r => setTimeout(r, 50));
+        const steps = {};
+        for (const scale of ['3000', '1000', '500', '4000', '1000']) {
+            view.setAttribute('max-frequency', scale);
+            await settle();
+            steps[scale] = renders;
+        }
         const labels = Array.from(view.shadowRoot.querySelectorAll('.axis span')).map(s => s.textContent);
-        return {renders, top: labels[labels.length - 1]};
+        return {steps, top: labels[labels.length - 1]};
     }""")
-    assert result == {'renders': 0, 'top': '1 kHz'}
+    # 3000 redraws the broadband one; 1000 computes the narrowband one (and
+    # the pitch); 500, 4000 and back to 1000 reuse what's computed.
+    assert result == {'steps': {'3000': 0, '1000': 1, '500': 1, '4000': 1}, 'top': '1 kHz'}
+
+
+def test_low_scales_resolve_harmonics(demo):
+    # A 150 Hz buzz: at 1 kHz the narrowband spectrogram separates its
+    # harmonics (peaks at 150, 300, 450 Hz with dips between); broadband
+    # blurs them together.
+    contrast = demo.evaluate("""async () => {
+        const rate = 16000, samples = new Float32Array(rate);
+        for (let i = 0; i < samples.length; i++)
+            for (let h = 1; h <= 6; h++) samples[i] += Math.sin(2 * Math.PI * 150 * h * i / rate) / h;
+        const view = document.querySelector('#dark');
+        const result = {};
+        for (const scale of ['5000', '1000']) {
+            view.setAttribute('max-frequency', scale);
+            view.audio = {samples, sampleRate: rate};
+            await new Promise(r => view.addEventListener('render', r, {once: true}));
+            const a = view._current().spectrogram;
+            const middle = Math.floor(a.columns / 2) * a.bins;
+            const at = hz => a.data[middle + Math.round(hz / a.binHz)];
+            result[scale] = at(300) - at(225);   // harmonic vs between two
+        }
+        return result;
+    }""")
+    assert contrast['1000'] > 15     # dB: clearly separated
+    assert contrast['5000'] < 6      # blurred
+
+
+def test_pitch_track_drawn_at_low_scales(demo):
+    track = demo.evaluate("""async () => {
+        const view = document.querySelector('#dark');
+        await new Promise(r => view._image ? r() : view.addEventListener('render', r, {once: true}));
+        const before = view.showPitch;
+        view.setAttribute('max-frequency', '1000');
+        await new Promise(r => view.addEventListener('render', r, {once: true}));
+        const voiced = view.pitchTrack.filter(p => p.hz);
+        return {before, after: view.showPitch, median: voiced.map(p => p.hz).sort((a, b) => a - b)[voiced.length >> 1]};
+    }""")
+    # The demo's synthetic vowels have a 140 Hz pitch.
+    assert track['before'] is False and track['after'] is True
+    assert track['median'] == pytest.approx(140, rel=0.02)
+
+
+def test_host_pitch_track_replaces_the_computed_one(demo):
+    hz = demo.evaluate("""() => {
+        const view = document.querySelector('#dark');
+        view.pitchTrack = [{time: 1.0, hz: 222}];
+        return view.pitchTrack.map(p => p.hz);
+    }""")
+    assert hz == [222]
 
 
 def test_ctrl_wheel_over_the_axis_changes_the_scale(demo):

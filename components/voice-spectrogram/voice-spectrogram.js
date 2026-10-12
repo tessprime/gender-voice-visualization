@@ -9,7 +9,14 @@
 // application state: the host sets properties and listens for events.
 
 import {DEFAULTS, COMPUTED_MAX_FREQUENCY, computeSpectrogram, colormap, paintColumns, monoSamples,
-	zoomedScale, renderFrequencyAxis} from './spectrogram.js';
+	zoomedScale, renderFrequencyAxis, decimate, computePitchTrack, drawPitch} from './spectrogram.js';
+import {PitchTracker} from './pitch.js';
+
+// Without a window-length attribute, the window follows the scale: at
+// NARROWBAND_MAX and below, a 25 ms window resolves the harmonics (about
+// 52 Hz resolution); above, the 5 ms window shows formants (about 260 Hz).
+const NARROWBAND_MAX = 2000;
+const NARROWBAND = Object.freeze({windowLength: .025, timeStep: .005, maxFrequency: NARROWBAND_MAX});
 
 // Loading this file must not fail during server-side rendering (e.g. in
 // Next.js), where there's no HTMLElement; the element is only defined in
@@ -141,7 +148,7 @@ const TEMPLATE = `
 
 export class VoiceSpectrogram extends Base {
 	static get observedAttributes() {
-		return ['max-frequency', 'window-length', 'dynamic-range', 'colormap', 'view-duration'];
+		return ['max-frequency', 'window-length', 'dynamic-range', 'colormap', 'view-duration', 'show-pitch'];
 	}
 
 	constructor() {
@@ -165,9 +172,12 @@ export class VoiceSpectrogram extends Base {
 		this._words = [];
 		this._phones = [];
 		this._currentTime = null;
-		this._spectrogram = null;  // computeSpectrogram()'s result
-		this._image = null;        // the whole spectrogram, one pixel per column and bin
-		this._stale = false;       // the spectrogram needs (re)computing
+		// Spectrograms computed so far, by analysis ('broadband', 'narrowband'
+		// or a custom window): {spectrogram, image}, the image one pixel per
+		// column and bin. Switching scales back and forth reuses them.
+		this._analyses = new Map();
+		this._computedPitch = null; // [{time, hz}] from the audio, once needed
+		this._pitchTrack = null;    // set by the host instead, if it has one
 		this._computeTimer = null;
 		this._viewStart = 0;       // the time range shown: start, and length
 		this._viewSpan = Infinity; // (clamped to the recording; see _clampView)
@@ -251,7 +261,7 @@ export class VoiceSpectrogram extends Base {
 		// Properties set before the element was defined (e.g. by a framework
 		// that renders first and loads this module later) are plain fields
 		// that hide the setters; reapply them through the setters.
-		for (let name of ['audio', 'words', 'phones', 'currentTime']) {
+		for (let name of ['audio', 'words', 'phones', 'currentTime', 'pitchTrack']) {
 			if (Object.prototype.hasOwnProperty.call(this, name)) {
 				let value = this[name];
 				delete this[name];
@@ -278,18 +288,18 @@ export class VoiceSpectrogram extends Base {
 	}
 
 	attributeChangedCallback(name) {
-		// Colours and the dB range only need repainting; the rest recomputes.
-		let computed = this._spectrogram ? this._spectrogram.maxFrequency : null;
 		if (name == 'view-duration') {
 			this._resetView();
-		} else if (name == 'max-frequency' && (computed == null || this.maxFrequency <= computed)) {
-			// Within what's computed: only redraw.
-			this._renderAxis();
-			this._draw();
 		} else if (name == 'colormap' || name == 'dynamic-range') {
-			this._paintImage();
+			for (let analysis of this._analyses.values()) this._paint(analysis);
+			this._draw();
+		} else if (name == 'window-length') {
+			this._analyses.clear();
+			this._refresh();
 		} else {
-			this._invalidate();
+			// The scale (or showing the pitch): computes what the new setting
+			// needs, if it isn't cached.
+			this._refresh();
 		}
 	}
 
@@ -297,8 +307,27 @@ export class VoiceSpectrogram extends Base {
 	get audio() { return this._audio; }
 	set audio(audio) {
 		this._audio = audio;
+		this._analyses.clear();
+		this._computedPitch = null;
 		this._resetView();
-		this._invalidate();
+		this._refresh();
+	}
+
+	// The pitch drawn over the spectrogram: [{time, hz}] (hz null when
+	// unvoiced). Computed from the audio (YIN, as the live view) unless the
+	// host sets its own, e.g. from a more accurate analysis.
+	get pitchTrack() { return this._pitchTrack || this._computedPitch; }
+	set pitchTrack(track) {
+		this._pitchTrack = track || null;
+		this._refresh();
+	}
+
+	// Whether the pitch is drawn: the show-pitch attribute ("on" or "off"),
+	// or by default when the scale is low enough to show it (narrowband).
+	get showPitch() {
+		let setting = this.getAttribute('show-pitch');
+		if (setting == 'on' || setting == 'off') return setting == 'on';
+		return this.maxFrequency <= NARROWBAND_MAX;
 	}
 
 	// Aligned words and phones: arrays of {start, end, label}, times in
@@ -404,20 +433,45 @@ export class VoiceSpectrogram extends Base {
 		};
 		return {
 			maxFrequency: number('max-frequency', DEFAULTS.maxFrequency),
-			windowLength: number('window-length', DEFAULTS.windowLength),
+			windowLength: number('window-length', NaN),
 			dynamicRange: number('dynamic-range', DEFAULTS.dynamicRange),
 			colormap: this.getAttribute('colormap') || 'magma',
 		};
 	}
 
-	// Computing takes a while (~0.2 s for 8 s of 44.1 kHz audio), so it waits
-	// until the element is visible, and runs once for several changes in a
-	// row (e.g. a host switching recordings quickly). A 'render' event
-	// follows each new spectrogram.
-	_invalidate() {
-		this._stale = true;
-		this._spectrogram = null;
-		this._image = null;
+	// The analysis the current settings call for: {key, options, decimated}.
+	_analysisFor() {
+		let {maxFrequency, windowLength} = this._options();
+		if (!isNaN(windowLength)) {
+			return {key: `window ${windowLength}`, decimated: false,
+				options: {windowLength, maxFrequency: Math.max(maxFrequency, COMPUTED_MAX_FREQUENCY)}};
+		}
+		if (maxFrequency <= NARROWBAND_MAX) return {key: 'narrowband', decimated: true, options: NARROWBAND};
+		// Computed to at least 5 kHz, so changing the scale above
+		// NARROWBAND_MAX only redraws.
+		return {key: 'broadband', decimated: false,
+			options: {maxFrequency: Math.max(maxFrequency, COMPUTED_MAX_FREQUENCY)}};
+	}
+
+	// The spectrogram to draw: the one the settings call for, or while it's
+	// being computed, any other of the same recording.
+	_current() {
+		let wanted = this._analyses.get(this._analysisFor().key);
+		return wanted || this._analyses.values().next().value || null;
+	}
+
+	// For tests and debugging: the image being drawn.
+	get _image() {
+		let current = this._current();
+		return current ? current.image : null;
+	}
+
+	// Redraw, and compute whatever's missing. Computing takes a while
+	// (~0.2 s for 8 s of 44.1 kHz audio), so it waits until the element is
+	// visible, and runs once for several changes in a row (e.g. a host
+	// switching recordings quickly). A 'render' event follows each
+	// computation.
+	_refresh() {
 		this._renderAxis();
 		this._renderTier('words');
 		this._renderTier('phones');
@@ -425,35 +479,49 @@ export class VoiceSpectrogram extends Base {
 		this._scheduleCompute();
 	}
 
+	_needsComputing() {
+		if (!this._audio) return false;
+		let spectrogram = !this._analyses.has(this._analysisFor().key);
+		let pitch = this.showPitch && !this._pitchTrack && !this._computedPitch;
+		return spectrogram || pitch;
+	}
+
 	_scheduleCompute() {
-		if (!this._stale || this._computeTimer != null) return;
+		if (this._computeTimer != null || !this._needsComputing()) return;
 		this._computeTimer = setTimeout(() => {
 			this._computeTimer = null;
 			let visible = this.isConnected && this._plot.clientWidth > 0;
-			if (this._stale && visible) this._compute();
+			if (visible && this._needsComputing()) this._compute();
 		}, 0);
 	}
 
 	_compute() {
-		this._stale = false;
-		if (!this._audio) return;
-		let {samples, sampleRate} = monoSamples(this._audio);
-		let options = this._options();
-		// Computed to at least 5 kHz, so lowering the scale only redraws.
-		options.maxFrequency = Math.max(options.maxFrequency, COMPUTED_MAX_FREQUENCY);
-		this._spectrogram = computeSpectrogram(samples, sampleRate, options);
-		this._paintImage();
+		let audio = this._audio;
+		let mono = monoSamples(audio);
+		let low = null;  // decimated audio, shared by narrowband and pitch
+		let lowRate = () => low || (low = decimate(mono.samples, mono.sampleRate));
+
+		let {key, options, decimated} = this._analysisFor();
+		if (!this._analyses.has(key)) {
+			let {samples, sampleRate} = decimated ? lowRate() : mono;
+			let analysis = {spectrogram: computeSpectrogram(samples, sampleRate, options), image: null};
+			this._paint(analysis);
+			this._analyses.set(key, analysis);
+		}
+		if (this.showPitch && !this._pitchTrack && !this._computedPitch) {
+			let {samples, sampleRate} = lowRate();
+			this._computedPitch = computePitchTrack(samples, sampleRate, new PitchTracker(sampleRate));
+		}
 		this._renderAxis();
-		this._renderTier('words');
-		this._renderTier('phones');
+		this._draw();
 		this.dispatchEvent(new CustomEvent('render'));
 	}
 
-	// Paint the whole spectrogram once into an offscreen canvas; drawing
-	// then only scales it to the element's size.
-	_paintImage() {
-		let s = this._spectrogram;
-		if (!s || typeof document == 'undefined') return;
+	// Paint a spectrogram into an offscreen canvas once; drawing then only
+	// crops and scales it.
+	_paint(analysis) {
+		let s = analysis.spectrogram;
+		if (typeof document == 'undefined') return;
 		let {dynamicRange, colormap: name} = this._options();
 		let image = document.createElement('canvas');
 		image.width = s.columns;
@@ -462,8 +530,7 @@ export class VoiceSpectrogram extends Base {
 		let pixels = context.createImageData(s.columns, s.bins);
 		paintColumns(pixels.data, s.columns, s.data, s.bins, 0, s.columns, s.maxDb, dynamicRange, colormap(name));
 		context.putImageData(pixels, 0, 0);
-		this._image = image;
-		this._draw();
+		analysis.image = image;
 	}
 
 	_draw() {
@@ -478,22 +545,37 @@ export class VoiceSpectrogram extends Base {
 		}
 		let context = canvas.getContext('2d');
 		context.clearRect(0, 0, width, height);
-		let s = this._spectrogram;
-		if (this._image && s) {
-			let {start, span} = this._clampView();
-			// The bottom of the image, up to the scale's top.
-			let shownBins = Math.min(s.bins, this.maxFrequency / s.binHz);
+		let current = this._current();
+		let maxFrequency = this.maxFrequency;
+		let {start, span} = this._clampView();
+		if (current && current.image) {
+			let s = current.spectrogram;
+			// The bottom of the image, up to the scale's top (or all of it, if
+			// this one doesn't reach that high: then it fills less height).
+			let shownBins = Math.min(s.bins, maxFrequency / s.binHz);
+			let shownHeight = height * Math.min(1, s.maxFrequency / maxFrequency);
 			context.imageSmoothingEnabled = true;
-			context.drawImage(this._image, start / s.timeStep, s.bins - shownBins, span / s.timeStep, shownBins,
-				0, 0, width, height);
+			context.drawImage(current.image, start / s.timeStep, s.bins - shownBins, span / s.timeStep, shownBins,
+				0, height - shownHeight, width, shownHeight);
+		}
+		let track = this.pitchTrack;
+		if (this.showPitch && track && span) {
+			let points = [];
+			for (let point of track) {
+				if (point.time >= start && point.time <= start + span) {
+					points.push([(point.time - start) / span * width, point.hz]);
+				}
+			}
+			let colour = getComputedStyle(this).getPropertyValue('--vs-pitch').trim() || '#4dd0ff';
+			drawPitch(context, points, maxFrequency, height, ratio, colour);
 		}
 		this._updateCursor();
 	}
 
 	_renderAxis() {
 		this._axis.textContent = '';
-		if (!this._spectrogram) return;
-		renderFrequencyAxis(this._axis, Math.min(this.maxFrequency, this._spectrogram.maxFrequency));
+		if (!this._audio) return;
+		renderFrequencyAxis(this._axis, this.maxFrequency);
 	}
 
 	_renderTier(tier) {

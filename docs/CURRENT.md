@@ -100,8 +100,21 @@ to be reused in another app (Next.js). See its README.
        300 Hz tone draws at 300 Hz; Fern's recording as a fake microphone
        gives a median 150 Hz (her stored Praat median: 152 Hz). 5
        component tests, 1 app test.
-5. [ ] Pitch and formant overlays, computing in a worker, pinch-zoom on
-       touch screens.
+   [x] Better resolution below 1 kHz: without a window-length attribute,
+       scales up to 2 kHz use a 25 ms window (~52 Hz resolution, separate
+       harmonics; computed from audio decimated to ~16 kHz), above that the
+       5 ms one (~260 Hz, formants). Each is computed once and cached. The
+       pitch track (YIN, as the live view) is drawn at those scales; hosts
+       can supply their own (`pitchTrack`). Checked: a 150 Hz buzz's
+       harmonics stand >15 dB above the gaps in narrowband, <6 dB in
+       broadband; the demo's 140 Hz vowels track at 140 Hz; a 30 s clip
+       takes 0.9 s to switch the first time.
+       Seen: YIN occasionally jumps an octave up for a few frames (e.g.
+       Morgan's "I" at ~14 s).
+5. [ ] Formant overlays, computing in a worker (switching scales blocks
+       for ~1 s on long clips), pinch-zoom on touch screens; fix the
+       octave jumps (smoothing, or voicemeasure's Praat pitch as the
+       track).
 - [x] License: MIT, in the component's own `LICENSE` (the rest of the
       repository stays AGPL-3.0). It can stay in this repository; moving it
       to its own would make installing it from git easier (npm can't

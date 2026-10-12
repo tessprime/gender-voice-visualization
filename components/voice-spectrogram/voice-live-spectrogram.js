@@ -8,7 +8,7 @@
 // to a MediaStream to start, and to null to stop (the picture stays).
 
 import {SpectrumAnalyzer, colormap, paintColumns, COMPUTED_MAX_FREQUENCY, zoomedScale,
-	renderFrequencyAxis} from './spectrogram.js';
+	renderFrequencyAxis, Decimator, ANALYSIS_RATE, drawPitch} from './spectrogram.js';
 import {PitchTracker} from './pitch.js';
 
 const Base = typeof HTMLElement == 'undefined' ? class {} : HTMLElement;
@@ -23,7 +23,6 @@ const DEFAULTS = {
 	colormap: 'magma',
 };
 const TIME_STEP = .01;        // s between columns
-const ANALYSIS_RATE = 16000;  // audio is decimated to about this rate
 
 // Collects the input's samples off the audio thread, in batches.
 const TAP_WORKLET = `
@@ -46,35 +45,6 @@ class VoiceLiveTap extends AudioWorkletProcessor {
 }
 registerProcessor('voice-live-tap', VoiceLiveTap);
 `;
-
-// Low-pass (two biquads) and keep every factor-th sample.
-class Decimator {
-	constructor(rate, factor) {
-		this.factor = factor;
-		this.phase = 0;
-		let w = 2 * Math.PI * .45 * rate / factor / rate, alpha = Math.sin(w) / (2 * Math.SQRT1_2);
-		let a0 = 1 + alpha;
-		this.b = [(1 - Math.cos(w)) / 2 / a0, (1 - Math.cos(w)) / a0, (1 - Math.cos(w)) / 2 / a0];
-		this.a = [-2 * Math.cos(w) / a0, (1 - alpha) / a0];
-		this.state = [[0, 0, 0, 0], [0, 0, 0, 0]];  // x1, x2, y1, y2 per stage
-	}
-
-	process(input) {
-		if (this.factor == 1) return input;
-		let out = new Float32Array(Math.ceil((input.length + this.phase) / this.factor));
-		let count = 0;
-		for (let x of input) {
-			for (let s of this.state) {
-				let y = this.b[0] * x + this.b[1] * s[0] + this.b[2] * s[1] - this.a[0] * s[2] - this.a[1] * s[3];
-				s[1] = s[0]; s[0] = x; s[3] = s[2]; s[2] = y;
-				x = y;
-			}
-			if (this.factor == 1 || this.phase == 0) out[count++] = x;
-			this.phase = (this.phase + 1) % this.factor;
-		}
-		return out.subarray(0, count);
-	}
-}
 
 const TEMPLATE = `
 <style>
@@ -392,19 +362,9 @@ export class VoiceLiveSpectrogram extends Base {
 
 		// The pitch, as dots on the same frequency axis.
 		let colour = getComputedStyle(this).getPropertyValue('--vs-pitch').trim() || '#4dd0ff';
-		context.fillStyle = colour;
-		context.strokeStyle = 'rgba(0, 0, 0, .7)';
-		context.lineWidth = ratio;
-		let radius = 2 * ratio;
-		for (let i = 0; i < h.columns; i++) {
-			let hz = h.pitch[(h.write + i) % h.columns];
-			if (!(hz > 0) || hz > maxFrequency) continue;
-			let x = (i + .5) * columnWidth, y = (1 - hz / maxFrequency) * height;
-			context.beginPath();
-			context.arc(x, y, radius, 0, 2 * Math.PI);
-			context.fill();
-			context.stroke();
-		}
+		let points = [];
+		for (let i = 0; i < h.columns; i++) points.push([(i + .5) * columnWidth, h.pitch[(h.write + i) % h.columns]]);
+		drawPitch(context, points, maxFrequency, height, ratio, colour);
 	}
 
 	_renderAxis() {

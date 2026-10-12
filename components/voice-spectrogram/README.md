@@ -58,13 +58,16 @@ matplotlib, whose authors dedicated them to the public domain (CC0).
 | `currentTime` | number or `null` | Draws the cursor and highlights the word and phone under it. |
 | `duration` | number (read-only) | The recording's length. |
 | `viewStart`, `viewEnd` | number (read-only) | The time range shown. Change it with `setView(start, end)` (`end` null keeps the length). |
+| `pitchTrack` | `[{time, hz}]` | The pitch drawn over the spectrogram (`hz` null when unvoiced). Computed from the audio (YIN, as the live view) unless you set your own, e.g. from a more accurate analysis. |
+| `showPitch` | boolean (read-only) | Whether the pitch is drawn (see `show-pitch`). |
 
 ### Attributes
 
 | Attribute | Default | |
 |---|---|---|
-| `max-frequency` | `5000` | Top of the frequency axis, Hz. Up to 5 kHz only redraws (the spectrogram is computed to 5 kHz); above recomputes. |
-| `window-length` | `0.005` | Analysis window, s. 0.005 ("broadband") shows formants; ~0.03 ("narrowband") resolves harmonics. |
+| `max-frequency` | `5000` | Top of the frequency axis, Hz. |
+| `window-length` | automatic | Analysis window, s. By default it follows the scale: up to 2 kHz, 0.025 s ("narrowband", ~52 Hz resolution, separate harmonics); above, 0.005 s ("broadband", ~260 Hz, formants). Set it to fix the window. |
+| `show-pitch` | automatic | `on` or `off`; by default the pitch is drawn at scales up to 2 kHz. |
 | `dynamic-range` | `70` | dB below the loudest point that still shows. |
 | `colormap` | `magma` | `magma` or `viridis` (dark pages), `gray` (light pages, like Praat). |
 | `view-duration` | whole recording | Seconds shown at once; longer recordings scroll. |
@@ -79,7 +82,9 @@ Plain vertical scrolling is left to the page. The view follows `currentTime`, pa
 stays in sight.
 
 The defaults follow Praat's spectrogram (Gaussian window, +6 dB/octave
-pre-emphasis).
+pre-emphasis). Each analysis is computed once, when first needed (the
+narrowband one from audio decimated to ~16 kHz, up to 2 kHz; the broadband
+one up to 5 kHz), so moving between scales afterwards only redraws.
 
 ### Events
 
@@ -103,7 +108,7 @@ CSS custom properties on the element (or any ancestor):
 `--vs-height` (spectrogram height, default 200px), `--vs-tier-height`,
 `--vs-axis-width`, `--vs-background`, `--vs-text`, `--vs-border`,
 `--vs-hover`, `--vs-cursor`, `--vs-current` and `--vs-current-text`
-(highlighted interval), `--vs-vowel`, `--vs-overview` and
+(highlighted interval), `--vs-vowel`, `--vs-pitch`, `--vs-overview` and
 `--vs-overview-height`. Parts for `::part()`: `plot`, `canvas`, `axis`,
 `cursor`, `words`, `phones`, `overview`.
 
@@ -210,4 +215,7 @@ dependency at this folder or a git URL, e.g.
   audio. Long recordings use a coarser time step (at most 8000 columns).
   Moving it into a worker is planned.
 - No pinch-zoom on touch screens yet (dragging scrolls).
-- Planned: pitch and formant overlays on `<voice-spectrogram>`.
+- The YIN pitch sometimes jumps an octave up (locking onto the second
+  harmonic) for a few frames. Supplying `pitchTrack` from a Praat-style
+  analysis avoids it.
+- Planned: formant overlays.

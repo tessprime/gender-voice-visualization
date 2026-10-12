@@ -185,6 +185,71 @@ export function paintColumns(pixels, width, columnsData, bins, firstX, count, ma
 	}
 }
 
+// Audio for analyses that only need low frequencies (pitch, narrowband
+// spectrograms) is decimated to about this rate, which makes them cheaper.
+export const ANALYSIS_RATE = 16000;
+
+// Low-pass (two biquads) and keep every factor-th sample.
+export class Decimator {
+	constructor(rate, factor) {
+		this.factor = factor;
+		this.phase = 0;
+		let w = 2 * Math.PI * .45 * rate / factor / rate, alpha = Math.sin(w) / (2 * Math.SQRT1_2);
+		let a0 = 1 + alpha;
+		this.b = [(1 - Math.cos(w)) / 2 / a0, (1 - Math.cos(w)) / a0, (1 - Math.cos(w)) / 2 / a0];
+		this.a = [-2 * Math.cos(w) / a0, (1 - alpha) / a0];
+		this.state = [[0, 0, 0, 0], [0, 0, 0, 0]];  // x1, x2, y1, y2 per stage
+	}
+
+	process(input) {
+		if (this.factor == 1) return input;
+		let out = new Float32Array(Math.ceil((input.length + this.phase) / this.factor));
+		let count = 0;
+		for (let x of input) {
+			for (let s of this.state) {
+				let y = this.b[0] * x + this.b[1] * s[0] + this.b[2] * s[1] - this.a[0] * s[2] - this.a[1] * s[3];
+				s[1] = s[0]; s[0] = x; s[3] = s[2]; s[2] = y;
+				x = y;
+			}
+			if (this.factor == 1 || this.phase == 0) out[count++] = x;
+			this.phase = (this.phase + 1) % this.factor;
+		}
+		return out.subarray(0, count);
+	}
+}
+
+// Whole samples decimated to about ANALYSIS_RATE: {samples, sampleRate}.
+export function decimate(samples, sampleRate) {
+	let factor = Math.max(1, Math.round(sampleRate / ANALYSIS_RATE));
+	return {samples: new Decimator(sampleRate, factor).process(samples), sampleRate: sampleRate / factor};
+}
+
+// A pitch track ([{time, hz}], hz null when unvoiced) at a fixed step.
+export function computePitchTrack(samples, sampleRate, tracker, timeStep = .01) {
+	let track = [];
+	for (let t = timeStep / 2; t < samples.length / sampleRate; t += timeStep) {
+		track.push({time: t, hz: tracker.estimate(samples, Math.round(t * sampleRate))});
+	}
+	return track;
+}
+
+// Draw pitch values as dots on a frequency axis from 0 to maxFrequency.
+// points is a list of [x, hz] (canvas pixels, Hz); unvoiced and
+// off-scale values are skipped.
+export function drawPitch(context, points, maxFrequency, height, ratio, colour) {
+	context.fillStyle = colour;
+	context.strokeStyle = 'rgba(0, 0, 0, .7)';
+	context.lineWidth = ratio;
+	let radius = 2 * ratio;
+	for (let [x, hz] of points) {
+		if (!(hz > 0) || hz > maxFrequency) continue;
+		context.beginPath();
+		context.arc(x, (1 - hz / maxFrequency) * height, radius, 0, 2 * Math.PI);
+		context.fill();
+		context.stroke();
+	}
+}
+
 // The frequency scale. Views compute columns up to at least
 // COMPUTED_MAX_FREQUENCY and show up to their max-frequency, so changing the
 // scale within that range only redraws.
