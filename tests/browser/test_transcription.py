@@ -89,6 +89,9 @@ def test_without_endpoints_the_dialog_links_to_the_editor(page):
     assert 'hidden' in page.get_attribute('.modal-shadow', 'class')
     assert page.is_visible('#endpoint-form')
     assert page.evaluate("document.activeElement.id") == 'endpoint-url'
+    # Only the side pane scrolls to it: the header and player stay on screen.
+    assert page.evaluate("document.body.scrollTop") == 0
+    assert page.evaluate("document.querySelector('header').getBoundingClientRect().top") == 0
     assert page.log.errors == []
 
 

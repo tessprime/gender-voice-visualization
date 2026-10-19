@@ -54,3 +54,54 @@ def test_vowel_playback_highlights_each_word(page):
 
     page.wait_for_selector('.constellation .vowel-dot.playing', state='detached', timeout=30_000)
     assert highlighted(page) == []
+
+
+def test_clicking_a_word_plays_from_it(page):
+    # Another clip is in the player; clicking a word switches to this one.
+    start = page.evaluate("""title => {
+        const clips = globalState.get('clips');
+        globalState.set('playingClip', clips.find(c => c.title == 'Bob'));
+        const clip = clips.find(c => c.title == title);
+        globalState.set('previewClip', clip);
+        return clip.phones.find(p => p.word.word == 'advisor').time;
+    }""", CLIP)
+    page.locator('#preview-transcript .transcript-word', has_text='advisor').click()
+    assert page.evaluate("globalState.get('playingClip').title") == CLIP
+    assert page.evaluate("globalState.get('playing')")
+    page.wait_for_function("t => !$('audio.clip').paused && $('audio.clip').currentTime > t", arg=start)
+    assert page.evaluate("$('audio.clip').currentTime") < start + 1.5
+    assert 'advisor' in highlighted(page)
+    assert page.log.errors == []
+
+
+def test_clicking_the_first_word_goes_back_to_the_start(page):
+    page.evaluate("""title => {
+        const clip = globalState.get('clips').find(c => c.title == title);
+        globalState.set('previewClip', clip);
+        // As if it had no leading silence.
+        clip.phones.find(p => p.word && p.word.word).time = 0;
+        showTranscript(clip);
+        globalState.set('playingClip', clip);
+    }""", CLIP)
+    page.wait_for_function("$('audio.clip').readyState >= 1")
+    page.evaluate("globalState.set('playbackTime', 3)")
+    page.wait_for_function("Math.abs($('audio.clip').currentTime - 3) < .1")
+    page.locator('#preview-transcript .transcript-word').first.click()
+    page.wait_for_function("!$('audio.clip').paused")
+    assert page.evaluate("$('audio.clip').currentTime") < 1
+
+
+def test_selecting_text_doesnt_seek(page):
+    page.evaluate("""title => {
+        const clip = globalState.get('clips').find(c => c.title == title);
+        globalState.set('previewClip', clip);
+        globalState.set('playingClip', clip);
+    }""", CLIP)
+    words = page.locator('#preview-transcript .transcript-word')
+    first, second = words.nth(0).bounding_box(), words.nth(2).bounding_box()
+    page.mouse.move(first['x'] + 2, first['y'] + first['height'] / 2)
+    page.mouse.down()
+    page.mouse.move(second['x'] + second['width'] - 2, second['y'] + second['height'] / 2, steps=5)
+    page.mouse.up()
+    assert page.evaluate("window.getSelection().toString()") != ''
+    assert not page.evaluate("globalState.get('playing')")

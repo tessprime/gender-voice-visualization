@@ -94,7 +94,8 @@ try {
 	})
 
 	globalState.render(['playbackTime'], current => {
-		if (current.playbackTime && 
+		// (Including 0: back to the start.)
+		if (current.playbackTime != null &&
 			current.playbackTime != mediaElement.currentTime
 		) {
 			 mediaElement.currentTime = current.playbackTime;

@@ -114,10 +114,20 @@ Done:
   "Keep permanently" (`navigator.storage.persist()`), and "Delete
   everything stored". It lists what's in the stores, not what's on screen.
 - Help page text updated.
-- Tests: `tests/browser/test_storage.py` (7), including a context where
+- The theme is kept (`theme`: a theme's name, or `custom` with the
+  customised values in `customTheme`), and so are the spectrogram axis
+  menus (`spectrogramAxes`, per spectrogram: the details one and the
+  recording one separately). Resetting either in the panel puts the page
+  back to its defaults. The panel's settings list now refreshes when a
+  setting changes (`storedsettingschange`).
+- Tests: `tests/browser/test_storage.py` (10), including a context where
   `indexedDB` and `localStorage` throw. Full suite: 55 passed.
 
 Surprises:
+- Picking "Custom" in the theme menu started a retry loop:
+  `doLoadTheme('custom')` waited a second and tried again, forever, for a
+  theme that never exists. It now skips Custom. The menu's closing tag
+  was also `<select>` instead of `</select>`.
 - The test fixture's dialog handler dismisses every dialog, so a test
   that needs `confirm()` to say yes replaces `window.confirm` instead.
 
@@ -125,8 +135,10 @@ Open:
 - Saving defaults to on. On a shared computer that keeps recordings for
   the next person; the panel and help text say so, but default off is an
   option.
-- Not stored yet: the theme, the spectrogram's scale menus. Stored
-  records carry `version: 1` for future changes to their shape.
+- The stored theme is applied by settings.html's script, after the page
+  has started rendering with Deep Dark, so a slow load may flash the
+  default theme first.
+- Stored records carry `version: 1` for future changes to their shape.
 
 ## Goal: run the whole analysis in the browser
 
@@ -276,6 +288,13 @@ to be reused in another app (Next.js). See its README.
       by spelling (longest common subsequence); on all 21 examples every
       transcript word matched, and `<unk>` maps to the words it replaced
       (Aiden's "Kings—nor") or to none (noises in Jenn, Steve).
+- [x] Clicking a word in that transcript plays the clip from the word's
+      first aligned phone (switching the player to the clip if needed), as
+      clicking the spectrogram does; both use `playClipFrom()` in util.js.
+      A click that ends a text selection doesn't seek. Fixed on the way:
+      the player ignored seeks to 0 s (`if (current.playbackTime && ...)`),
+      so a word at the very start (no leading silence) played from wherever
+      the player was. Tests in `test_transcript.py`.
 - [x] The transcript is now inserted as text, not HTML (it was
       `innerHTML`, so an imported clip's transcript could inject markup).
       The title and other details fields still use `innerHTML`.

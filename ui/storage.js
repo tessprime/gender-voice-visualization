@@ -20,6 +20,9 @@ const STORED_SETTINGS = {
 	transcriptionEndpoints: 'Transcription endpoints',
 	transcriptionEndpoint: 'Transcription endpoint last used',
 	exampleTags: 'Tags on examples',
+	theme: 'Theme',
+	customTheme: 'Custom theme',
+	spectrogramAxes: 'Spectrogram axes',
 };
 
 const localSettings = {
@@ -34,13 +37,17 @@ const localSettings = {
 	set(key, value) {
 		try {
 			localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
+			window.dispatchEvent(new Event('storedsettingschange'));
 			return true;
 		} catch (error) {
 			return false;
 		}
 	},
 	remove(key) {
-		try { localStorage.removeItem(STORAGE_PREFIX + key); } catch (error) {}
+		try {
+			localStorage.removeItem(STORAGE_PREFIX + key);
+			window.dispatchEvent(new Event('storedsettingschange'));
+		} catch (error) {}
 	},
 	// The keys stored now, ours only (other apps on the same origin, e.g. a
 	// shared github.io domain, have their own).

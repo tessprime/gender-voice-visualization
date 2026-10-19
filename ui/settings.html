@@ -251,6 +251,11 @@
 			if (key == 'saveClips') $('#save-clips').checked = true;
 			if (key == 'hiddenClips') globalState.set('hiddenClips', new Set());
 			if (key == 'transcriptionEndpoints') setTranscriptionEndpoints([]);
+			if (key == 'theme' || (key == 'customTheme' && $('#theme-select').value == 'custom')) {
+				localSettings.remove('theme');
+				applyStoredTheme();
+			}
+			if (key == 'spectrogramAxes') for (const reset of spectrogramAxisResets) reset();
 			if (key == 'exampleTags') {
 				globalState.mutate('clips', clips => {
 					for (const clip of clips) if (clip.example) clip.tags = [];
@@ -277,6 +282,17 @@
 		});
 
 		window.addEventListener('storedclipschange', renderStoredData);
+		// Settings change in bursts (a reset, dragging through colours):
+		// list them once per burst.
+		let settingsListPending = false;
+		window.addEventListener('storedsettingschange', () => {
+			if (settingsListPending) return;
+			settingsListPending = true;
+			setTimeout(() => {
+				settingsListPending = false;
+				renderStoredData();
+			}, 50);
+		});
 		renderStoredData();
 	</script>
 	<hr>
@@ -357,8 +373,12 @@
 			$('#endpoint-form').classList.remove('hidden');
 			$('#add-endpoint').classList.add('hidden');
 			updateEndpointHints();
-			$('#transcription-endpoints').scrollIntoView({ block: 'start' });
-			$('#endpoint-url').focus();
+			// Scroll only the side pane: scrollIntoView() and a plain focus()
+			// also scroll the body, though it's overflow: hidden, pushing the
+			// header (and the player) off the top for good.
+			const pane = $('#transcription-endpoints').closest('.current-tab');
+			if (pane) pane.scrollTop += $('#transcription-endpoints').getBoundingClientRect().top - pane.getBoundingClientRect().top;
+			$('#endpoint-url').focus({ preventScroll: true });
 		}
 
 		function closeEndpointForm() {
@@ -448,7 +468,7 @@
 		<option value="00s">00's</option>
 		<option value="10s">10's</option>
 		<option value="custom">Custom</option>
-	<select>
+	</select>
 	<br>
 	<br>
 
@@ -558,7 +578,8 @@
 		}
 		$('#theme-select').addEventListener('change', evt => {
 			let theme = $('#theme-select').value;
-			doLoadTheme(theme);
+			// Custom is whatever the controls below now say.
+			if (theme != 'custom') doLoadTheme(theme);
 		});
 
 
@@ -571,8 +592,33 @@
 			});
 		}
 
-		theme = $('#theme-select').value;
-		loadTheme(themes[theme]);
+		// The theme last chosen on this device: a named one, or the
+		// customised values ('customTheme').
+		const DEFAULT_THEME = 'Deep Dark';
+		function applyStoredTheme() {
+			const stored = localSettings.get('theme');
+			const custom = localSettings.get('customTheme');
+			if (stored == 'custom' && custom && typeof custom == 'object') {
+				$('#theme-select').value = 'custom';
+				loadTheme(custom);
+			} else {
+				$('#theme-select').value = themes[stored] ? stored : DEFAULT_THEME;
+				loadTheme(themes[$('#theme-select').value]);
+			}
+		}
+		$('#theme-select').addEventListener('change', () => {
+			localSettings.set('theme', $('#theme-select').value);
+			if ($('#theme-select').value == 'custom') rememberCustomTheme();
+		});
+		function rememberCustomTheme() {
+			const values = {};
+			for (const key in themeState.state) values[key] = themeState.get(key);
+			localSettings.set('theme', 'custom');
+			localSettings.set('customTheme', values);
+		}
+		// After the sync listeners above, so themeState has the new value.
+		for (const input of $$('#set-colors > input')) input.addEventListener('change', rememberCustomTheme);
+		applyStoredTheme();
 
 		function nativeWidgets() {$('body').classList.remove('custom-widgets')};
 		function customWidgets() {$('body').classList.add('custom-widgets')};

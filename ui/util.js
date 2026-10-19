@@ -109,6 +109,15 @@ function transcriptPieces(transcript, phones) {
 }
 
 
+// Play clip from time (seconds), switching the player to it if needed.
+function playClipFrom(clip, time) {
+	if (!clip) return;
+	if (globalState.get('playingClip') != clip) globalState.set('playingClip', clip);
+	globalState.set('playbackTime', time);
+	globalState.set('playing', true);
+}
+
+
 // Set the word being heard (see 'spokenWord' in globals.js), if it changed.
 // time, if given, is a moment in it to point at (e.g. the vowel playing);
 // otherwise views follow the player's position.
@@ -144,8 +153,22 @@ function decodeClipAudio(clip) {
 // Scale (linear or log), From and Up to, kept in step with its attributes
 // (including ctrl+wheel over it, which changes "Up to"). Returns the element
 // holding them; the menus' ids are idPrefix + '-frequency-scale',
-// '-min-frequency' and '-max-frequency'.
+// '-min-frequency' and '-max-frequency'. The choices are kept on the device
+// per idPrefix (the 'spectrogramAxes' setting).
+const spectrogramAxisResets = [];
 function spectrogramControls(view, idPrefix) {
+	const axes = ['frequency-scale', 'min-frequency', 'max-frequency'];
+	const defaults = Object.fromEntries(axes.map(name => [name, view.getAttribute(name)]));
+	const stored = (localSettings.get('spectrogramAxes', {}) || {})[idPrefix];
+	if (stored) {
+		for (const name of axes) if (stored[name] != null) view.setAttribute(name, stored[name]);
+	}
+	const remember = () => {
+		const all = localSettings.get('spectrogramAxes', {}) || {};
+		all[idPrefix] = Object.fromEntries(axes.map(name => [name, view.getAttribute(name)]));
+		localSettings.set('spectrogramAxes', all);
+	};
+
 	let controls = document.createElement('div');
 	controls.className = 'spectrogram-controls';
 	let menu = (name, label, options) => {
@@ -186,6 +209,19 @@ function spectrogramControls(view, idPrefix) {
 	from.addEventListener('change', () => view.setAttribute('min-frequency', from.value));
 	upTo.addEventListener('change', () => view.setAttribute('max-frequency', upTo.value));
 	view.addEventListener('scalechange', event => show(upTo, event.detail.maxFrequency));
+	for (const select of [scale, from, upTo]) select.addEventListener('change', remember);
+	view.addEventListener('scalechange', remember);
+
+	// Back to how the page set it up (when the stored setting is reset).
+	spectrogramAxisResets.push(() => {
+		for (const name of axes) {
+			if (defaults[name] == null) view.removeAttribute(name); else view.setAttribute(name, defaults[name]);
+		}
+		const log = view.getAttribute('frequency-scale') == 'log';
+		scale.value = log ? 'log' : 'linear';
+		show(from, view.getAttribute('min-frequency') || (log ? 75 : 0));
+		show(upTo, view.getAttribute('max-frequency') || 5000);
+	});
 	return controls;
 }
 

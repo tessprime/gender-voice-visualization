@@ -138,3 +138,60 @@ def test_the_app_works_without_storage(browser, site_url, example):
     assert page.is_checked('#save-clips')
     assert errors == []
     context.close()
+
+
+def body_var(page, name):
+    return page.evaluate("n => document.body.style.getPropertyValue('--' + n)", name)
+
+
+def test_the_theme_is_kept(page):
+    open_settings(page)
+    page.select_option('#theme-select', 'Light Blue')
+    assert body_var(page, 'body-background') == '#ffffff'
+    reload(page)
+    assert page.input_value('#theme-select') == 'Light Blue'
+    assert body_var(page, 'body-background') == '#ffffff'
+
+    open_settings(page)
+    setting = page.locator('.stored-setting', has_text='Theme')
+    assert setting.locator('span').text_content() == 'Theme: "Light Blue"'
+    setting.locator('button').click()
+    assert page.input_value('#theme-select') == 'Deep Dark'
+    assert body_var(page, 'body-background') != '#ffffff'
+    assert page.evaluate("localSettings.get('theme')") is None
+
+
+def test_a_customised_theme_is_kept(page):
+    open_settings(page)
+    page.click('#set-colors summary')
+    page.fill('#body-background', '#123456')
+    assert page.input_value('#theme-select') == 'custom'
+    reload(page)
+    assert page.input_value('#theme-select') == 'custom'
+    assert body_var(page, 'body-background') == '#123456'
+    assert page.input_value('#body-background') == '#123456'
+    # Picking Custom again keeps it; picking a named theme replaces it.
+    open_settings(page)
+    page.select_option('#theme-select', 'custom')
+    assert body_var(page, 'body-background') == '#123456'
+    page.select_option('#theme-select', 'Light Red')
+    reload(page)
+    assert page.input_value('#theme-select') == 'Light Red'
+    assert page.log.errors == []
+
+
+def test_spectrogram_axes_are_kept(page):
+    defaults = [page.input_value(f'#preview-{n}') for n in ('frequency-scale', 'min-frequency', 'max-frequency')]
+    page.select_option('#preview-frequency-scale', 'linear')
+    page.select_option('#preview-min-frequency', '0')
+    page.select_option('#preview-max-frequency', '2000')
+    reload(page)
+    assert page.input_value('#preview-frequency-scale') == 'linear'
+    assert page.input_value('#preview-max-frequency') == '2000'
+    assert page.get_attribute('#preview-spectrogram', 'max-frequency') == '2000'
+    # Only the details spectrogram; the recording one keeps its own.
+    assert page.get_attribute('#live-spectrogram', 'max-frequency') == '1000'
+
+    open_settings(page)
+    page.locator('.stored-setting', has_text='Spectrogram axes').locator('button').click()
+    assert [page.input_value(f'#preview-{n}') for n in ('frequency-scale', 'min-frequency', 'max-frequency')] == defaults

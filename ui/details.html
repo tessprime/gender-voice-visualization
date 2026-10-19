@@ -1,6 +1,13 @@
 
 <!-- Details -->
 <style>
+#preview-transcript .transcript-word {
+	cursor: pointer;
+	border-radius: 2px;
+}
+#preview-transcript .transcript-word:hover {
+	text-decoration: underline;
+}
 #preview-transcript .transcript-word.current {
 	background: yellow;
 	color: black;
@@ -236,7 +243,8 @@ $('#preview-tag-input').addEventListener('keydown', event => {
 $('#preview-tag-input').addEventListener('change', addTypedTags);
 
 // The transcript, one span per word, so the word being heard can be
-// highlighted. transcriptSpans maps word_index to its spans.
+// highlighted, and clicking a word plays from it. transcriptSpans maps
+// word_index to its spans.
 let transcriptSpans = new Map();
 function showTranscript(clip) {
 	let element = $('#preview-transcript');
@@ -250,12 +258,28 @@ function showTranscript(clip) {
 		let word = document.createElement('span');
 		word.className = 'transcript-word';
 		word.textContent = piece.text;
+		// Where it starts: its first aligned (non-silent) phone.
+		let start = Math.min(...(clip.phones || [])
+			.filter(phone => phone.word && piece.wordIndices.includes(phone.word_index))
+			.map(phone => phone.time));
+		if (Number.isFinite(start)) {
+			word.dataset.start = start;
+			word.title = 'Play from here';
+		}
 		for (let index of piece.wordIndices) {
 			transcriptSpans.set(index, (transcriptSpans.get(index) || []).concat([word]));
 		}
 		element.appendChild(word);
 	}
 }
+
+$('#preview-transcript').addEventListener('click', event => {
+	let word = event.target.closest('.transcript-word');
+	if (!word || word.dataset.start == null) return;
+	// Not when the click ends selecting text (to copy it).
+	if (!window.getSelection().isCollapsed) return;
+	playClipFrom(globalState.get('previewClip'), Number(word.dataset.start));
+});
 
 globalState.render(['spokenWord', 'previewClip'], current => {
 	for (let word of $$('#preview-transcript .transcript-word.current')) {
@@ -314,13 +338,7 @@ globalState.render(['playbackTime', 'playingClip', 'spokenWord'], updateSpectrog
 // Its frequency axis menus.
 previewSpectrogram.after(spectrogramControls(previewSpectrogram, 'preview'));
 
-previewSpectrogram.addEventListener('seek', event => {
-	let clip = spectrogramClip;
-	if (!clip) return;
-	if (globalState.get('playingClip') != clip) globalState.set('playingClip', clip);
-	globalState.set('playbackTime', event.detail.time);
-	globalState.set('playing', true);
-});
+previewSpectrogram.addEventListener('seek', event => playClipFrom(spectrogramClip, event.detail.time));
 
 $('section.details button.download').addEventListener('click', evt => {
 	let previewClip = globalState.get('previewClip');
