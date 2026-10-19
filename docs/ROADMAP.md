@@ -231,6 +231,10 @@ before analysis.
 
 ### Work
 
+- [x] **User-configured transcription endpoints** (`ui/transcription.js`):
+      OpenAI-style servers (e.g. Speaches with Whisper) set up in the
+      settings tab and used from the Add a Clip dialog. The rest of this
+      item is about the browser's own recognition.
 - [ ] **Privacy first.** In Chrome, recognition normally sends the audio to
       Google's servers; Chrome 139+ can run it on the device
       (`processLocally`, after the language pack downloads)
@@ -250,8 +254,9 @@ before analysis.
         it's off and links to the setting, rather than vanishing.
       - Option 2 (recognising during recording) needs this consent before
         the recording starts, not after.
-      - This is the app's first stored data (today nothing persists, and
-        the help page says so); mention it on the help page.
+      - Store it with `localSettings` (`ui/storage.js`) and add it to
+        `STORED_SETTINGS`, so the "Stored on this device" panel lists it
+        and can reset it.
 - [ ] **"Auto-transcribe" button after recording.** Once a recording
       exists (recorded or uploaded), a button next to the transcript fills
       it in from the audio; the user then reviews it. The catch: the API
@@ -285,7 +290,8 @@ before analysis.
         in one `transcriptionSupport` value the UI reads, and test each
         branch (including "unsupported") in the browser test setup.
 - [ ] **Review step.** Show the recognised text for editing before
-      analysis; recognition errors become alignment errors.
+      analysis; recognition errors become alignment errors. Started:
+      words the server is unsure of are marked under the transcript.
 - [ ] **Normalise the text** for the dictionary: numbers ("25" → "twenty
       five"), symbols and punctuation. Highlight words that aren't in the
       dictionary so the user can fix or respell them.
@@ -325,6 +331,5 @@ From earlier work, roughly by priority:
       pre-creating every output file avoids it, and check whether a current
       Praat release still has it. Low priority, since we're replacing Praat.
 - [ ] Constellation on touch screens (no hover).
-- [ ] The help page says clips are "sent to our server for processing";
-      with in-browser analysis (and always on the static build) they
-      never leave the device. Update the text.
+- [x] The help page said clips are "sent to our server for processing"
+      and not stored; updated for in-browser analysis and saved clips.

@@ -2,6 +2,7 @@
 <div class="current-tab"></div>
 <div class="tab-set">
 	<button class="details hbox iconic">{% include 'info-circle.svg' %} <span>Details</span></button>
+	<button class="clips iconic hbox">{% include 'tags.svg' %} <span>Clips</span></button>
 	<button class="help iconic hbox">{% include 'question-circle.svg' %} <span>Help</span></button>
 	<button class="settings iconic">⚙ Settings</button>
 </div>
@@ -94,7 +95,7 @@
 		}
 	}, true);
 	
-	for (let tab of ['settings', 'help', 'details']) {
+	for (let tab of ['settings', 'help', 'details', 'clips']) {
 		let tabButton = $('button.' + tab);
 		tabButton.addEventListener('click', evt => {
 			for (let sibling of tabButton.parentNode.querySelectorAll('button')) {

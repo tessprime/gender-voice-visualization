@@ -25,3 +25,8 @@ for (let el of $$('textarea, input')) {
 }
 
 loadDefaultClips();
+
+// The user's clips from earlier visits (see storage.js).
+clipStore.load().then(saved => {
+	if (saved.length) globalState.mutate('clips', clips => clips.push(...saved));
+});

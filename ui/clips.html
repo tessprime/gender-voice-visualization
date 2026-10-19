@@ -1,0 +1,241 @@
+<!-- Clips: every clip in a folder tree (one folder per group, one per tag),
+     with checkboxes for which ones the graph shows (tags.js). -->
+<style>
+	section.clips h2 {
+		margin-top: 0px;
+		margin-bottom: .25em;
+	}
+	#clip-tree-summary {
+		font-size: 90%;
+		opacity: .8;
+		min-height: 1.8em;
+		display: flex;
+		align-items: center;
+	}
+	#clip-tree-summary button {
+		margin-left: .5em;
+	}
+	.clip-tree, .clip-tree ul {
+		list-style: none;
+		margin: 0px;
+		padding: 0px;
+	}
+	.clip-tree ul {
+		padding-left: 1.4em;
+	}
+	.clip-tree li[aria-expanded=false] > ul {
+		display: none;
+	}
+	.clip-tree .row {
+		display: flex;
+		align-items: center;
+		gap: .3em;
+		min-height: 1.9em;
+		border-radius: .3em;
+	}
+	.clip-tree .row:hover {
+		background: rgba(127, 127, 127, .15);
+	}
+	.clip-tree .twisty {
+		background: none;
+		border: none;
+		box-shadow: none;
+		color: inherit;
+		width: 1.2em;
+		padding: 0px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+	.clip-tree li.clip > .row {
+		padding-left: 1.5em;
+	}
+	.clip-tree input[type=checkbox] {
+		margin: 0px;
+		flex-shrink: 0;
+	}
+	.clip-tree .name {
+		background: none;
+		border: none;
+		box-shadow: none;
+		color: inherit;
+		padding: .1em 0;
+		text-align: left;
+		cursor: pointer;
+		overflow-wrap: anywhere;
+		font: inherit;
+	}
+	/* Plain text, not the theme's buttons. */
+	.custom-widgets .clip-tree .row button.name, .custom-widgets .clip-tree .row button.twisty {
+		background: none;
+		border: none;
+		box-shadow: none;
+		color: inherit;
+	}
+	.custom-widgets .clip-tree .row button.name:after, .custom-widgets .clip-tree .row button.twisty:after {
+		display: none;
+	}
+	.clip-tree li.folder > .row .name {
+		font-weight: bold;
+	}
+	.clip-tree .count, .clip-tree .clip-tags, .clip-tree .empty {
+		opacity: .65;
+		font-size: 85%;
+	}
+	.clip-tree .clip-tags {
+		margin-left: auto;
+		text-align: right;
+	}
+	.clip-tree li.clip.hidden-clip > .row .name, .clip-tree li.clip.hidden-clip > .row .clip-swatch {
+		opacity: .5;
+	}
+	.clip-tree li.clip.current > .row {
+		background: rgba(127, 127, 127, .25);
+	}
+	.clip-tree li.clip.current > .row .name {
+		font-weight: bold;
+	}
+	.clip-tree .empty {
+		padding: .2em 0 .2em 1.5em;
+	}
+	.clip-swatch {
+		display: inline-block;
+		width: .8em;
+		height: .8em;
+		border-radius: 50%;
+		border: 1px solid var(--chrome-border);
+		flex-shrink: 0;
+	}
+</style>
+<section class="clips">
+	<h2>Clips</h2>
+	<div id="clip-tree-summary"></div>
+	<ul class="clip-tree" id="clip-tree" role="tree" aria-label="Clips"></ul>
+	<datalist id="tag-suggestions"></datalist>
+</section>
+<script>
+	// Which folders are open: 'mine', 'examples', 'tags' and 'tag:<tag>'.
+	const openFolders = new Set(localSettings.get('openFolders', ['mine', 'tags']));
+	function toggleFolder(id) {
+		if (openFolders.has(id)) openFolders.delete(id); else openFolders.add(id);
+		localSettings.set('openFolders', [...openFolders]);
+		renderClipTree();
+	}
+
+	// Select a clip, as clicking its marker does, but staying on this tab.
+	function selectClip(clip) {
+		if (globalState.get('playingClip') != clip) {
+			globalState.set('playbackTime', 0);
+			globalState.set('playing', false);
+			globalState.set('playingClip', clip);
+		}
+		globalState.set('previewClip', clip);
+	}
+
+	function treeCheckbox(clips, label) {
+		const box = create('input', { type: 'checkbox', 'aria-label': label });
+		const state = shownState(clips);
+		box.checked = state == 'all';
+		box.indeterminate = state == 'some';
+		box.disabled = clips.length == 0;
+		// From the state, not the box: a half-ticked folder shows everything.
+		box.addEventListener('click', () => setClipsShown(clips, state != 'all'));
+		return box;
+	}
+
+	function folderNode(id, label, clips, children) {
+		const open = openFolders.has(id);
+		const node = create('li', { class: 'folder', 'data-folder': id, role: 'treeitem', 'aria-expanded': String(open) });
+		const twisty = create('button', { class: 'twisty', 'aria-label': `${open ? 'Close' : 'Open'} ${label}` });
+		twisty.textContent = open ? '▾' : '▸';
+		twisty.addEventListener('click', () => toggleFolder(id));
+		const name = create('button', { class: 'name' });
+		name.textContent = label;
+		name.addEventListener('click', () => toggleFolder(id));
+		const count = create('span', { class: 'count' });
+		count.textContent = `(${clips.length})`;
+		const row = create('div', { class: 'row' });
+		row.append(twisty, treeCheckbox(clips, `Show ${label} on the graph`), name, count);
+		const list = create('ul', { role: 'group' });
+		list.append(...children);
+		node.append(row, list);
+		return node;
+	}
+
+	// Each clip's rows (a clip with tags appears in several folders).
+	let clipRows = new Map();
+	function clipNode(clip) {
+		const shown = clipShown(clip);
+		const node = create('li', { class: 'clip', role: 'treeitem' });
+		node.classList.toggle('hidden-clip', !shown);
+		const box = create('input', { type: 'checkbox', 'aria-label': `Show ${clip.title || 'Untitled'} on the graph` });
+		box.checked = shown;
+		box.addEventListener('change', () => setClipsShown([clip], box.checked));
+		const swatch = create('span', { class: 'clip-swatch' });
+		swatch.style.background = clip.color || '#000000';
+		const name = create('button', { class: 'name', title: 'Select this clip' });
+		name.textContent = clip.title || 'Untitled';
+		name.addEventListener('click', () => selectClip(clip));
+		const tags = create('span', { class: 'clip-tags' });
+		tags.textContent = clipTags(clip).join(', ');
+		const row = create('div', { class: 'row' });
+		row.append(box, swatch, name, tags);
+		node.append(row);
+		clipRows.set(clip, (clipRows.get(clip) || []).concat([node]));
+		return node;
+	}
+
+	function emptyNode(text) {
+		const node = create('li', { class: 'empty' });
+		node.textContent = text;
+		return node;
+	}
+
+	function renderClipTree() {
+		const clips = globalState.get('clips');
+		clipRows = new Map();
+		const tree = $('#clip-tree');
+		tree.replaceChildren();
+		for (const group of CLIP_GROUPS) {
+			const members = clips.filter(clip => clipGroup(clip) == group.id);
+			const children = members.length ? members.map(clipNode)
+				: [emptyNode(group.id == 'mine' ? 'Clips you add appear here.' : 'None loaded.')];
+			tree.append(folderNode(group.id, group.label, members, children));
+		}
+		const tags = allTags(clips);
+		const tagged = clips.filter(clip => clipTags(clip).length);
+		const tagFolders = tags.map(tag => {
+			const members = clips.filter(clip => hasTag(clip, tag));
+			return folderNode('tag:' + tagKey(tag), tag, members, members.map(clipNode));
+		});
+		tree.append(folderNode('tags', 'Tags', tagged,
+			tagFolders.length ? tagFolders : [emptyNode("Add tags to a clip in its Details tab, or when adding it.")]));
+
+		const shown = clips.filter(clip => clipShown(clip)).length;
+		const summary = $('#clip-tree-summary');
+		summary.replaceChildren();
+		if (shown < clips.length) {
+			summary.append(`Showing ${shown} of ${clips.length} clips on the graph.`);
+			const all = create('button', { id: 'show-all-clips' });
+			all.textContent = 'Show all';
+			all.addEventListener('click', () => setClipsShown(clips, true));
+			summary.append(all);
+		}
+
+		$('#tag-suggestions').replaceChildren(...tags.map(tag => {
+			const option = create('option');
+			option.value = tag;
+			return option;
+		}));
+		markCurrentClip();
+	}
+
+	function markCurrentClip() {
+		const current = globalState.get('previewClip');
+		for (const node of $$('#clip-tree li.clip.current')) node.classList.remove('current');
+		for (const node of clipRows.get(current) || []) node.classList.add('current');
+	}
+
+	globalState.render(['clips', 'hiddenClips'], renderClipTree);
+	// Hovering the graph changes this often; only move the highlight.
+	globalState.render(['previewClip'], markCurrentClip);
+</script>

@@ -23,6 +23,90 @@
 	.example {
 		align-items: center;
 	}
+	#stored-data h3, section.settings > h3 {
+		margin-bottom: .25em;
+	}
+	.stored-note, #stored-usage {
+		opacity: .8;
+		font-size: 90%;
+	}
+	#stored-clips {
+		width: 100%;
+		border-collapse: collapse;
+		margin: .5em 0;
+	}
+	#stored-clips th {
+		text-align: left;
+		font-weight: normal;
+		opacity: .7;
+	}
+	#stored-clips td, #stored-clips th {
+		padding: .15em .4em .15em 0;
+	}
+	#stored-clips td:first-child {
+		overflow-wrap: anywhere;
+	}
+	#stored-clips td:last-child {
+		text-align: right;
+	}
+	#stored-settings h4 {
+		margin: .5em 0 .25em;
+	}
+	.stored-setting span {
+		margin-right: auto;
+	}
+	#endpoint-list {
+		list-style: none;
+		padding: 0px;
+		margin: .5em 0;
+	}
+	#endpoint-list li {
+		display: flex;
+		align-items: center;
+		gap: .4em;
+		padding: .3em 0;
+		border-bottom: 1px solid var(--chrome-border);
+	}
+	#endpoint-list .endpoint-text {
+		margin-right: auto;
+		overflow-wrap: anywhere;
+	}
+	#endpoint-list .endpoint-text small {
+		display: block;
+		opacity: .75;
+	}
+	#endpoint-form {
+		display: flex;
+		flex-direction: column;
+		gap: .2em;
+		margin-top: .5em;
+	}
+	#endpoint-form.hidden {
+		display: none;
+	}
+	#endpoint-form h3 {
+		margin: 0 0 .25em;
+	}
+	#endpoint-form label {
+		margin-top: .4em;
+	}
+	#endpoint-form input, #endpoint-form select {
+		width: 100%;
+		box-sizing: border-box;
+	}
+	#endpoint-schema-description, #endpoint-status {
+		opacity: .8;
+		font-size: 90%;
+	}
+	#endpoint-warning {
+		color: var(--accent);
+	}
+	#endpoint-form .hbox {
+		margin-top: .5em;
+	}
+	#endpoint-form .hbox #save-endpoint {
+		margin-left: auto;
+	}
 	section.settings select {
 		width: 50ch;
 		flex-shrink: 1;
@@ -30,6 +114,26 @@
 </style>
 <section class="settings">
 	<h2>Your Data</h2>
+	<div id="stored-data">
+		<h3>Stored on this device</h3>
+		<p class="stored-note">Only in this browser: nothing is sent anywhere.
+			Clearing the browser's site data also deletes it.</p>
+		<label class="hbox"><input type="checkbox" id="save-clips"> Save new clips on this device</label>
+		<table id="stored-clips">
+			<thead><tr><th>Clip</th><th>Saved</th><th>Size</th><th></th></tr></thead>
+			<tbody></tbody>
+		</table>
+		<p id="stored-clips-empty">No clips saved yet.</p>
+		<p id="stored-unavailable" class="hidden">This browser isn't letting the app store anything
+			(a private window, or site data blocked), so clips last only until you leave the page.</p>
+		<div id="stored-settings"></div>
+		<p id="stored-usage"></p>
+		<div class="hbox">
+			<button id="persist-storage" class="hidden" title="Ask the browser not to delete it when space runs low">Keep permanently</button>
+			<button id="delete-stored" class="danger">Delete everything stored</button>
+		</div>
+	</div>
+	<h3>Files</h3>
 	<div id="import-export" class="hbox">
 		<button id="export-clips">Export</button>
 		<input type="file" id="import-clips-file"/>
@@ -52,11 +156,273 @@
 					globalState.set('clips', loadedClips);
 					globalState.set('playingClip', last(loadedClips));
 					globalState.set('previewClip', last(loadedClips));
+					// Keep the user's own clips from the file, like new ones.
+					for (let clip of loadedClips) {
+						if (!clip.example) clipStore.saveIfWanted(clip);
+					}
 				}
 				reader.readAsText($('#import-clips-file').files[0]);
 			} else {
 				alert('You need to select the file containing your exported data.');
 			}
+		});
+
+		// The storage panel: what storage.js keeps, listed from the stores
+		// themselves (not from the clips on screen), so it shows exactly
+		// what's on the device.
+		$('#save-clips').checked = localSettings.get('saveClips', true);
+		$('#save-clips').addEventListener('change', evt => {
+			localSettings.set('saveClips', evt.target.checked);
+			renderStoredData();
+		});
+
+		function clipOnScreen(key) {
+			return globalState.get('clips').find(clip => clipStore.keys.get(clip) === key);
+		}
+
+		async function renderStoredData() {
+			const records = await clipStore.records();
+			let available = true;
+			try { await clipStore.open(); } catch (error) { available = false; }
+			$('#stored-unavailable').classList.toggle('hidden', available);
+
+			const body = $('#stored-clips tbody');
+			body.replaceChildren();
+			let total = 0;
+			for (const record of records) {
+				const bytes = storedClipBytes(record.clip);
+				total += bytes;
+				const row = create('tr', { 'data-key': record.key });
+				const title = create('td');
+				title.textContent = record.clip.title || 'Untitled';
+				const saved = create('td');
+				saved.textContent = new Date(record.savedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+				const size = create('td');
+				size.textContent = formatBytes(bytes);
+				const remove = create('button', { class: 'delete-stored-clip', title: 'Delete it from this device and from the graph' });
+				remove.textContent = 'Delete';
+				remove.addEventListener('click', async () => {
+					const clip = clipOnScreen(record.key);
+					await clipStore.removeKey(record.key);
+					if (clip) {
+						clipStore.keys.delete(clip);
+						globalState.mutate('clips', clips => clips.splice(clips.indexOf(clip), 1));
+						if (globalState.get('previewClip') == clip) globalState.set('previewClip', null);
+					}
+				});
+				row.append(title, saved, size, create('td', remove));
+				body.append(row);
+			}
+			$('#stored-clips').classList.toggle('hidden', records.length == 0);
+			$('#stored-clips-empty').classList.toggle('hidden', records.length > 0 || !available);
+
+			const settings = $('#stored-settings');
+			settings.replaceChildren();
+			for (const key of localSettings.keys()) {
+				const row = create('div', { class: 'hbox stored-setting' });
+				const label = create('span');
+				const value = localSettings.get(key);
+				const shown = Array.isArray(value) ? `${value.length} item${value.length == 1 ? '' : 's'}`
+					: value && typeof value == 'object' ? `${Object.keys(value).length} item${Object.keys(value).length == 1 ? '' : 's'}`
+					: JSON.stringify(value);
+				label.textContent = `${STORED_SETTINGS[key] || key}: ${shown}`;
+				const reset = create('button', { title: 'Forget this setting (back to the default)' });
+				reset.textContent = 'Reset';
+				reset.addEventListener('click', () => {
+					forgetSetting(key);
+					renderStoredData();
+				});
+				row.append(label, reset);
+				settings.append(row);
+			}
+			if (settings.children.length) settings.prepend(create('h4', 'Settings'));
+
+			let usage = records.length ? `${records.length} clip${records.length == 1 ? '' : 's'}, about ${formatBytes(total)}.` : '';
+			const persisted = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted() : null;
+			if (persisted) usage += ' The browser keeps it until you delete it.';
+			else if (persisted === false && records.length) usage += ' The browser may delete it if the device runs low on space.';
+			$('#stored-usage').textContent = usage;
+			$('#persist-storage').classList.toggle('hidden', persisted !== false || records.length == 0);
+		}
+
+		// Forget a stored setting, and stop using it on this page too.
+		function forgetSetting(key) {
+			localSettings.remove(key);
+			if (key == 'saveClips') $('#save-clips').checked = true;
+			if (key == 'hiddenClips') globalState.set('hiddenClips', new Set());
+			if (key == 'transcriptionEndpoints') setTranscriptionEndpoints([]);
+			if (key == 'exampleTags') {
+				globalState.mutate('clips', clips => {
+					for (const clip of clips) if (clip.example) clip.tags = [];
+				});
+			}
+		}
+
+		$('#persist-storage').addEventListener('click', async () => {
+			const granted = await navigator.storage.persist();
+			if (!granted) alert("The browser didn't agree to keep it permanently. Export your clips to keep a copy.");
+			renderStoredData();
+		});
+
+		$('#delete-stored').addEventListener('click', async () => {
+			if (!confirm('Delete every clip and setting stored on this device? Clips you haven\'t exported are lost.')) return;
+			const saved = new Set(globalState.get('clips').filter(clip => clipStore.isSaved(clip)));
+			await clipStore.clear();
+			for (const key of localSettings.keys()) forgetSetting(key);
+			globalState.mutate('clips', clips => {
+				for (let i = clips.length - 1; i >= 0; i--) if (saved.has(clips[i])) clips.splice(i, 1);
+			});
+			if (saved.has(globalState.get('previewClip'))) globalState.set('previewClip', null);
+			renderStoredData();
+		});
+
+		window.addEventListener('storedclipschange', renderStoredData);
+		renderStoredData();
+	</script>
+	<hr>
+	<div id="transcription-endpoints">
+		<h2>Transcription endpoints</h2>
+		<p class="stored-note">Speech-to-text servers that can fill in a clip's transcript from its recording
+			(in the Add a Clip dialog). Transcribing sends the recording to that server,
+			so only add ones you trust.</p>
+		<ul id="endpoint-list"></ul>
+		<p id="endpoint-list-empty">None yet.</p>
+		<button id="add-endpoint">Add an endpoint</button>
+		<form id="endpoint-form" class="hidden" autocomplete="off">
+			<h3 id="endpoint-form-title">New endpoint</h3>
+			<label for="endpoint-name">Name</label>
+			<input type="text" id="endpoint-name" placeholder="e.g. My Whisper server">
+			<label for="endpoint-url">Transcription URL</label>
+			<input type="url" id="endpoint-url" required>
+			<label for="endpoint-schema">API type</label>
+			<select id="endpoint-schema"></select>
+			<small id="endpoint-schema-description"></small>
+			<label for="endpoint-model">Model <small>(optional: the server's first speech model if empty)</small></label>
+			<input type="text" id="endpoint-model" list="endpoint-models">
+			<datalist id="endpoint-models"></datalist>
+			<label for="endpoint-key">API key <small>(optional; stored in this browser)</small></label>
+			<input type="password" id="endpoint-key">
+			<p id="endpoint-warning" class="hidden"></p>
+			<p id="endpoint-status" role="status"></p>
+			<div class="hbox">
+				<button type="button" id="check-endpoint">Check connection</button>
+				<button type="button" id="cancel-endpoint">Cancel</button>
+				<button type="submit" id="save-endpoint" class="attention">Save</button>
+			</div>
+		</form>
+	</div>
+	<script>
+		for (const [id, schema] of Object.entries(TRANSCRIPTION_SCHEMAS)) {
+			const option = create('option', { value: id });
+			option.textContent = schema.label;
+			$('#endpoint-schema').append(option);
+		}
+
+		let editingEndpoint = null;  // its id, or null for a new one
+
+		function endpointFromForm() {
+			const url = $('#endpoint-url').value.trim();
+			return {
+				id: editingEndpoint,
+				name: $('#endpoint-name').value.trim() || endpointHost({ url }),
+				url,
+				schema: $('#endpoint-schema').value,
+				model: $('#endpoint-model').value.trim(),
+				apiKey: $('#endpoint-key').value.trim(),
+			};
+		}
+
+		function updateEndpointHints() {
+			const schema = TRANSCRIPTION_SCHEMAS[$('#endpoint-schema').value];
+			$('#endpoint-schema-description').textContent = schema.description;
+			$('#endpoint-url').placeholder = schema.placeholder;
+			const url = $('#endpoint-url').value.trim();
+			const warning = $('#endpoint-warning');
+			warning.classList.toggle('hidden', !blockedAsMixedContent(url));
+			warning.textContent = 'This page is served over https, and browsers block requests from it to http addresses. '
+				+ 'Use an https address for the server (or open this app over http, e.g. on localhost).';
+		}
+		$('#endpoint-schema').addEventListener('change', updateEndpointHints);
+		$('#endpoint-url').addEventListener('input', updateEndpointHints);
+
+		function openEndpointForm(endpoint = null) {
+			editingEndpoint = endpoint ? endpoint.id : null;
+			$('#endpoint-form-title').textContent = endpoint ? `Edit ${endpoint.name}` : 'New endpoint';
+			$('#endpoint-name').value = endpoint ? endpoint.name : '';
+			$('#endpoint-url').value = endpoint ? endpoint.url : '';
+			$('#endpoint-schema').value = endpoint ? endpoint.schema : 'openai';
+			$('#endpoint-model').value = endpoint ? endpoint.model || '' : '';
+			$('#endpoint-key').value = endpoint ? endpoint.apiKey || '' : '';
+			$('#endpoint-status').textContent = '';
+			$('#endpoint-form').classList.remove('hidden');
+			$('#add-endpoint').classList.add('hidden');
+			updateEndpointHints();
+			$('#transcription-endpoints').scrollIntoView({ block: 'start' });
+			$('#endpoint-url').focus();
+		}
+
+		function closeEndpointForm() {
+			$('#endpoint-form').classList.add('hidden');
+			$('#add-endpoint').classList.remove('hidden');
+			editingEndpoint = null;
+		}
+
+		$('#add-endpoint').addEventListener('click', () => openEndpointForm());
+		$('#cancel-endpoint').addEventListener('click', closeEndpointForm);
+
+		$('#check-endpoint').addEventListener('click', async () => {
+			const endpoint = endpointFromForm();
+			const status = $('#endpoint-status');
+			if (!$('#endpoint-url').reportValidity()) return;
+			status.textContent = 'Checking…';
+			try {
+				const models = await TRANSCRIPTION_SCHEMAS[endpoint.schema].models(endpoint);
+				$('#endpoint-models').replaceChildren(...models.map(model => {
+					const option = create('option');
+					option.value = model;
+					return option;
+				}));
+				status.textContent = models.length
+					? `Connected. Models: ${models.join(', ')}.`
+					: "Connected, but the server didn't list any models.";
+			} catch (error) {
+				status.textContent = error.message;
+			}
+		});
+
+		$('#endpoint-form').addEventListener('submit', event => {
+			event.preventDefault();
+			saveTranscriptionEndpoint(endpointFromForm());
+			closeEndpointForm();
+		});
+
+		globalState.render(['transcriptionEndpoints'], ({ transcriptionEndpoints }) => {
+			const list = $('#endpoint-list');
+			list.replaceChildren();
+			for (const endpoint of transcriptionEndpoints) {
+				const item = create('li', { 'data-id': endpoint.id });
+				const name = create('strong');
+				name.textContent = endpoint.name;
+				const details = create('small');
+				const schema = TRANSCRIPTION_SCHEMAS[endpoint.schema];
+				details.textContent = `${endpoint.url} · ${schema ? schema.label : endpoint.schema}`
+					+ (endpoint.model ? ` · ${endpoint.model}` : '') + (endpoint.apiKey ? ' · API key set' : '');
+				const edit = create('button', { class: 'edit-endpoint' });
+				edit.textContent = 'Edit';
+				edit.addEventListener('click', () => openEndpointForm(endpoint));
+				const remove = create('button', { class: 'delete-endpoint' });
+				remove.textContent = 'Delete';
+				remove.addEventListener('click', () => {
+					if (editingEndpoint == endpoint.id) closeEndpointForm();
+					deleteTranscriptionEndpoint(endpoint.id);
+				});
+				const text = create('div', { class: 'endpoint-text' });
+				text.append(name, details);
+				item.append(text, edit, remove);
+				list.append(item);
+			}
+			$('#endpoint-list-empty').classList.toggle('hidden', transcriptionEndpoints.length > 0);
+			renderStoredData();
 		});
 	</script>
 	<hr>

@@ -134,10 +134,11 @@ def example(tmp_path_factory):
     return clip
 
 
-def add_clip(page, title, audio_path, transcript):
+def add_clip(page, title, audio_path, transcript, tags=''):
     """Add a clip through the "Add a Clip" dialog, uploading a file."""
     page.click('button.new-clip')
     page.fill('#title-input', title)
+    page.fill('#tags-input', tags)
     page.fill('#transcript', transcript)
     page.dispatch_event('#transcript', 'change')
     page.check('#upload-file')

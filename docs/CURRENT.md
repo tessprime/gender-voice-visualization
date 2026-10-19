@@ -3,6 +3,131 @@
 What we're working on right now, kept up to date as work happens. The
 longer-term plan is in [ROADMAP.md](ROADMAP.md).
 
+## Goal: transcription endpoints (ROADMAP item 7)
+
+Done:
+- `ui/transcription.js`: endpoints `{id, name, url, schema, model, apiKey}`
+  in the `transcriptionEndpoints` setting (and in globalState); the last
+  one picked in `transcriptionEndpoint`. `TRANSCRIPTION_SCHEMAS` has one
+  type so far, `openai` (POST multipart `file`, `model`,
+  `response_format=verbose_json` with word timestamps, retrying with
+  `json` if the server answers 400; models from the `/v1/models` beside
+  it). With no model set it takes the server's first speech model, else
+  `whisper-1`. Errors say what to do (unreachable/CORS, mixed content,
+  401/403 → API key, the server's message).
+- Settings tab, "Transcription endpoints": list with Edit/Delete, and a
+  form (name, URL, API type, model with suggestions, API key), "Check
+  connection" (lists the models) and a warning for http URLs from an
+  https page.
+- Add a Clip dialog: "Transcribe with [endpoint] [Transcribe]" under the
+  transcript, or, with no endpoints, a link that closes the dialog and
+  opens the editor (the dialog keeps its recording). The result replaces
+  the transcript and sets the script to Custom.
+- Recorded blobs now carry the recorder's MIME type (servers pick the
+  decoder from the file name, `recording.webm`/`.ogg`).
+- Stored-data panel: resetting a setting (or deleting everything) now also
+  updates the page (endpoints, hidden clips, example tags).
+- Doubtful words: when the server gives per-word probabilities
+  (Speaches, faster-whisper-server; not OpenAI), a box under the status
+  repeats the transcription with words below 0.8 marked yellow ("check")
+  and below 0.5 red ("unsure"), each titled "47% sure". It goes away as
+  soon as the transcript is edited. Thresholds are from Quinn on
+  shardblade: the four misheard words scored 0.47-0.75; one right word
+  ("That", 0.59) gets marked too.
+- Tests: `tests/browser/test_transcription.py` (9), with a fake server.
+  Full suite: 71 passed.
+
+Measured on shardblade:7000 (Speaches, `Systran/faster-distil-whisper-large-v3`):
+- Six examples, 8-24 s: 0.6-1.5 s each. Word errors 0 on clear readings;
+  Quinn 4/23 ("beige"→"beach", "he's foiled you"→"his full do"), all
+  flagged by low word probability. Bob's "tan"/"space" came back
+  "tanned"/"spirits"; Conrad's text has "tanned" and "sprits", so the
+  stored transcript may be what's wrong there.
+- Word start times usually within 30-40 ms of the aligner's, up to 0.75 s
+  off: not usable for alignment.
+- Without a prompt, punctuation and capitals come and go between clips.
+- End to end through the dialog: 1.9 s for Quinn.
+
+Surprises:
+- shardblade answers CORS preflights for any origin, but its responses
+  have no `Access-Control-Allow-Origin`, so browsers block them. Speaches
+  only adds CORS with `ALLOW_ORIGINS` set (default none), e.g.
+  `ALLOW_ORIGINS='["*"]'`; the preflight answers probably come from its
+  Gradio UI. Tess set `ALLOW_ORIGINS` to `*` (2026-10-18); since then the
+  app works with it in a normal browser from both localhost and 127.0.0.1
+  (0.8 s for Bob's 17 s clip; 0.8-2.4 s for Quinn's).
+- shardblade is http only; the https site can't call it (mixed content)
+  without e.g. `tailscale serve` in front.
+- The modal "hides" with opacity 0, so Playwright still calls its
+  contents visible.
+
+Open:
+- Review step: normalise numbers, flag words missing from the
+  dictionary.
+- API keys are stored in plain text in localStorage.
+
+## Goal: group and tag clips, and choose which the graph shows
+
+Done:
+- `ui/tags.js`: each clip is in a group (`mine` or `examples`, from
+  `clip.example`) and has `clip.tags`. Tags compare case-insensitively,
+  keeping the first spelling. `hiddenClips` in globalState: the set of
+  clip ids the graph leaves out (everything else is shown).
+- **Clips** tab (`ui/clips.html`): a folder tree. My recordings, Examples,
+  and Tags with a folder per tag (a clip with two tags is in both). Each
+  folder and clip has a checkbox for whether it's on the graph; folders go
+  half-ticked when partly shown, and clicking a half-ticked one shows all
+  of it. "Showing N of M" with "Show all" when anything is hidden.
+  Clicking a clip selects it and stays on the tab.
+  First version was toggle chips filtering by group and tag; replaced at
+  Tess's request with this file-system-like tree.
+- The graph hides unticked markers (`.marker.filtered-out`).
+- Tags are edited in the Details tab (chips with ×, type and Enter or
+  comma, suggestions from tags in use) and given in the Add a Clip dialog
+  (comma-separated; the field keeps its value for the next clip).
+- Kept between visits: a saved clip's tags in its stored record, example
+  tags (`exampleTags`, by id, since examples aren't stored), the hidden
+  clips (`hiddenClips`) and the open folders (`openFolders`).
+- The details title is now set with `textContent` (was `innerHTML`).
+- Tests: `tests/browser/test_tags.py` (6); `add_clip()` takes `tags`.
+  Full suite: 61 passed.
+
+Open:
+- Clicking a dot on the graph no longer switches to the Details tab either.
+- Renaming or deleting a tag everywhere at once; drag clips onto tag
+  folders; colouring markers by tag.
+- `hiddenClips` keeps ids of deleted clips (small; harmless).
+
+## Goal: keep clips on the device, with a panel to manage them
+
+Done:
+- `ui/storage.js`: `localSettings` (small preferences in localStorage,
+  keys prefixed `gvv:`) and `clipStore` (the user's clips in IndexedDB:
+  a 25 s recording is ~0.5 MB, so a handful would fill localStorage's
+  ~5 MB). Both fail quietly: with storage blocked the app works as before.
+- New clips are saved when analysed (setting `saveClips`, default on) and
+  restored on the next visit. Examples are never stored (`clip.example`).
+  Imported clips are saved like new ones. Deleting a clip in the details
+  tab deletes its stored copy.
+- Settings tab, "Stored on this device": the saving toggle, each stored
+  clip (title, date, size, Delete), stored settings with Reset, total size,
+  "Keep permanently" (`navigator.storage.persist()`), and "Delete
+  everything stored". It lists what's in the stores, not what's on screen.
+- Help page text updated.
+- Tests: `tests/browser/test_storage.py` (7), including a context where
+  `indexedDB` and `localStorage` throw. Full suite: 55 passed.
+
+Surprises:
+- The test fixture's dialog handler dismisses every dialog, so a test
+  that needs `confirm()` to say yes replaces `window.confirm` instead.
+
+Open:
+- Saving defaults to on. On a shared computer that keeps recordings for
+  the next person; the panel and help text say so, but default off is an
+  option.
+- Not stored yet: the theme, the spectrogram's scale menus. Stored
+  records carry `version: 1` for future changes to their shape.
+
 ## Goal: run the whole analysis in the browser
 
 voicealign (alignment) and voicemeasure (pitch, formants) run in

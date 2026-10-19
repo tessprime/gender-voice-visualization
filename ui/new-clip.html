@@ -47,6 +47,51 @@
 			--vs-height: 180px;
 			--vs-axis-width: 3.6em;
 		}
+		#transcribe-row {
+			margin-top: .4em;
+		}
+		#transcribe-row.hidden {
+			display: none;
+		}
+		#transcribe-row select {
+			width: auto;
+			flex-grow: 1;
+		}
+		#transcribe-row button {
+			margin-left: .5em;
+		}
+		#no-transcription-endpoints, #transcribe-status {
+			font-size: 90%;
+			margin: .3em 0;
+		}
+		#transcribe-status:empty {
+			display: none;
+		}
+		#transcript-review {
+			margin: .3em 0;
+			padding: .4em .5em;
+			border: 1px solid var(--chrome-border);
+			border-radius: .3em;
+			line-height: 1.6;
+		}
+		#transcript-review.hidden {
+			display: none;
+		}
+		#transcript-review .check, #transcript-review .unsure {
+			border-radius: .2em;
+			color: inherit;
+			cursor: help;
+			text-decoration: underline wavy;
+			text-decoration-skip-ink: none;
+		}
+		#transcript-review .check {
+			background: rgba(255, 200, 0, .2);
+			text-decoration-color: rgba(220, 160, 0, .9);
+		}
+		#transcript-review .unsure {
+			background: rgba(255, 60, 30, .4);
+			text-decoration-color: rgba(230, 50, 20, .95);
+		}
 		.new-clip .spectrogram-controls {
 			margin-bottom: .75em;
 			font-size: small;
@@ -65,6 +110,13 @@
 
 		<label for="color-select">Color</label>
 		<input type="color" id="color-select" value="#000000"/>
+	</div>
+
+	<br>
+
+	<div class="hbox">
+		<label for="tags-input">Tags</label>
+		<input type="text" id="tags-input" list="tag-suggestions" placeholder="e.g. week 3, morning"/>
 	</div>
 
 	<br>
@@ -96,6 +148,122 @@
 			if (globalState.get('transcript') != $('#transcript').value) {
 				globalState.set('transcript', $('#transcript').value);
 				$('#script-select').value = 'custom';
+			}
+		});
+	</script>
+
+	<!-- Fill in the transcript from the recording (transcription.js). -->
+	<div id="transcribe-row" class="hbox">
+		<label for="transcription-endpoint">Transcribe with</label>
+		<select id="transcription-endpoint"></select>
+		<button id="transcribe" type="button">Transcribe</button>
+	</div>
+	<p id="no-transcription-endpoints">To fill in the transcript from your recording,
+		<a href="#transcription-endpoints" id="open-endpoint-editor">add a transcription endpoint</a>.</p>
+	<p id="transcribe-status" role="status"></p>
+	<!-- The transcription again, its doubtful words marked, until the
+	     transcript is edited. -->
+	<p id="transcript-review" class="hidden" aria-label="Transcription, with doubtful words marked"></p>
+	<script>
+		globalState.render(['transcriptionEndpoints'], ({ transcriptionEndpoints }) => {
+			const select = $('#transcription-endpoint');
+			const chosen = chosenTranscriptionEndpoint();
+			select.replaceChildren(...transcriptionEndpoints.map(endpoint => {
+				const option = create('option', { value: endpoint.id });
+				option.textContent = endpoint.name;
+				return option;
+			}));
+			if (chosen) select.value = chosen.id;
+			$('#transcribe-row').classList.toggle('hidden', transcriptionEndpoints.length == 0);
+			$('#no-transcription-endpoints').classList.toggle('hidden', transcriptionEndpoints.length > 0);
+			updateTranscribeTitle();
+		});
+
+		function updateTranscribeTitle() {
+			const endpoint = chosenTranscriptionEndpoint();
+			$('#transcribe').title = endpoint ? `Send the recording to ${endpointHost(endpoint)} and put its transcript above` : '';
+		}
+
+		$('#transcription-endpoint').addEventListener('change', event => {
+			localSettings.set('transcriptionEndpoint', event.target.value);
+			updateTranscribeTitle();
+		});
+
+		// To the editor in the settings tab; the dialog keeps what's in it.
+		$('#open-endpoint-editor').addEventListener('click', event => {
+			event.preventDefault();
+			hideModal();
+			$('.tab-set button.settings').click();
+			openEndpointForm();
+		});
+
+		// The transcript the review is of; null when it's hidden.
+		let reviewedTranscript = null;
+
+		// Show the transcription with its doubtful words marked; returns
+		// what to tell the user.
+		function showTranscriptReview(text, words) {
+			const doubtful = (words || []).filter(word => wordConfidence(word.probability) != 'sure');
+			if (!doubtful.length) {
+				hideTranscriptReview();
+				return words ? 'check the transcript and correct anything it got wrong.'
+					: "check the transcript and correct anything it got wrong (this server doesn't say which words it's unsure of).";
+			}
+			const review = $('#transcript-review');
+			review.replaceChildren(...words.map((word, i) => {
+				const confidence = wordConfidence(word.probability);
+				const leading = word.text.match(/^\s*/)[0];
+				const spelled = word.text.slice(leading.length);
+				if (confidence == 'sure') return (i ? leading : '') + spelled;
+				const mark = create('mark', { class: confidence, title: `${Math.round(word.probability * 100)}% sure` });
+				mark.textContent = spelled;
+				const piece = document.createDocumentFragment();
+				piece.append(i ? leading : '', mark);
+				return piece;
+			}));
+			review.classList.remove('hidden');
+			reviewedTranscript = text;
+			const count = doubtful.length == 1 ? '1 word it was unsure of is' : `${doubtful.length} words it was unsure of are`;
+			return `${count} marked below. Check them against the recording and correct the transcript.`;
+		}
+
+		function hideTranscriptReview() {
+			reviewedTranscript = null;
+			$('#transcript-review').classList.add('hidden');
+			$('#transcript-review').replaceChildren();
+		}
+
+		// Once the transcript is edited, the marks no longer line up with it.
+		globalState.render(['transcript'], ({ transcript }) => {
+			if (reviewedTranscript !== null && transcript != reviewedTranscript) hideTranscriptReview();
+		});
+		$('#transcript').addEventListener('input', () => {
+			if (reviewedTranscript !== null && $('#transcript').value != reviewedTranscript) hideTranscriptReview();
+		});
+
+		$('#transcribe').addEventListener('click', async () => {
+			const status = $('#transcribe-status');
+			const endpoint = chosenTranscriptionEndpoint();
+			const audio = currentRecording();
+			if (!audio) {
+				status.textContent = 'Record your voice or choose a file first.';
+				return;
+			}
+			const button = $('#transcribe');
+			button.disabled = true;
+			hideTranscriptReview();
+			status.textContent = `Transcribing with ${endpoint.name}…`;
+			try {
+				const { text, words } = await transcribeWith(endpoint, audio);
+				if (!text) throw new TranscriptionError('The server heard no speech.');
+				globalState.set('transcript', text);
+				$('#script-select').value = 'custom';
+				status.textContent = 'Done: ' + showTranscriptReview(text, words);
+			} catch (error) {
+				console.warn('Transcription failed:', error);
+				status.textContent = error instanceof TranscriptionError ? error.message : `Transcription failed: ${error.message}`;
+			} finally {
+				button.disabled = false;
 			}
 		});
 	</script>
@@ -179,7 +347,7 @@
 							$('#live-spectrogram').stream = null;  // the picture stays
 							stopButton.disabled = true;
 							startButton.disabled = false;
-							const audioBlob = new Blob(audioChunks);
+							const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
 							recordedAudio = audioBlob;
 
 							let reader = new FileReader(recordedAudio);	
@@ -197,6 +365,13 @@
 				} catch(exception) { alertRecordingFailure(exception); }
 			}
 		}
+		// The recording the dialog would add: the chosen file, or the last
+		// take. null if there's none yet.
+		function currentRecording() {
+			if ($('#upload-file').checked) return $('#audio-file-input').files[0] || null;
+			return recordedAudio;
+		}
+
 		$('#start-recording').addEventListener('click', evt => {
 			recordAudio();
 
@@ -220,6 +395,7 @@
 			clip.transcript = transcriptText;
 			clip.title = $('#title-input').value;
 			clip.color = $('#color-select').value;
+			clip.tags = parseTags($('#tags-input').value);
 
 			if ($('#upload-file').checked) {
 				fileInput = $('#audio-file-input')
@@ -270,6 +446,7 @@
 				
 				clip.loadResponse(data);
 				globalState.mutate('clips', clips => clips.push(clip));
+				clipStore.saveIfWanted(clip);
 				globalState.set('playing', false);
 				globalState.set('playingClip', clip);
 				globalState.set('previewClip', clip);

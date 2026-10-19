@@ -82,6 +82,33 @@ td.highlight {
 	font-weight: normal;
 	white-space: nowrap;
 }
+#preview-tags {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: .3em;
+	margin-bottom: .75em;
+}
+#preview-tags .chips {
+	display: contents;
+}
+#preview-tags .tag-chip {
+	border: 1px solid var(--chrome-border);
+	border-radius: 1em;
+	padding: .05em .2em .05em .6em;
+	font-size: 90%;
+}
+#preview-tags .remove-tag {
+	background: none;
+	border: none;
+	box-shadow: none;
+	color: inherit;
+	padding: 0 .3em;
+	cursor: pointer;
+}
+#preview-tag-input {
+	width: 10em;
+}
 #preview-spectrogram {
 	margin: 1em 0 .25em;
 	--vs-height: 160px;
@@ -108,6 +135,11 @@ td.highlight {
 				<button class='delete' title='Delete Clip'>{% include 'trash.svg' %}</button>
 				<button class='download' title='Download Clip'>{% include 'download.svg' %}</button>
 			</span>
+		</div>
+
+		<div id="preview-tags">
+			<span class="chips"></span>
+			<input type="text" id="preview-tag-input" list="tag-suggestions" placeholder="Add a tag" aria-label="Add a tag" maxlength="40">
 		</div>
 
 		<table>
@@ -154,7 +186,7 @@ td.highlight {
 globalState.render(['previewClip'], current => {
 	if (current.previewClip) {
 		$('.details').classList.add('has-selection');
-		$('#preview-title').innerHTML = current.previewClip.title || '';
+		$('#preview-title').textContent = current.previewClip.title || '';
 		if (current.previewClip.meanPitch) {
 			$('#preview-mean-pitch').innerHTML = Math.round(current.previewClip.meanPitch) + 'Hz';
 			$('#preview-mean-resonance').innerHTML = Math.round(current.previewClip.meanResonance * 100) + '%';
@@ -170,6 +202,38 @@ globalState.render(['previewClip'], current => {
 		$('.details').classList.remove('has-selection');
 	}
 })
+
+// The clip's tags (tags.js): click a tag's × to remove it, type one and
+// press Enter (or a comma) to add it.
+globalState.render(['previewClip', 'clips'], ({ previewClip }) => {
+	const chips = $('#preview-tags .chips');
+	chips.replaceChildren();
+	if (!previewClip) return;
+	for (const tag of clipTags(previewClip)) {
+		const chip = create('span', { class: 'tag-chip' });
+		chip.textContent = tag;
+		const remove = create('button', { class: 'remove-tag', title: `Remove the tag "${tag}"`, 'aria-label': `Remove the tag ${tag}` });
+		remove.textContent = '×';
+		remove.addEventListener('click', () => removeClipTag(previewClip, tag));
+		chip.append(remove);
+		chips.append(chip);
+	}
+});
+function addTypedTags() {
+	const input = $('#preview-tag-input');
+	const clip = globalState.get('previewClip');
+	const tags = parseTags(input.value);
+	input.value = '';
+	if (clip && tags.length) setClipTags(clip, clipTags(clip).concat(tags));
+}
+$('#preview-tag-input').addEventListener('keydown', event => {
+	if (event.key == 'Enter' || event.key == ',') {
+		event.preventDefault();
+		addTypedTags();
+	}
+});
+// Picking a suggestion from the list.
+$('#preview-tag-input').addEventListener('change', addTypedTags);
 
 // The transcript, one span per word, so the word being heard can be
 // highlighted. transcriptSpans maps word_index to its spans.
@@ -277,6 +341,7 @@ $('section.details button.delete').addEventListener('click', evt => {
 			let index = clips.indexOf(previewClip);
 			clips.splice(index, 1);
 		})
+		clipStore.remove(previewClip);
 		globalState.set('previewClip', null);
 	}
 });

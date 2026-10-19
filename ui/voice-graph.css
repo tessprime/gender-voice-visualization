@@ -99,6 +99,9 @@ voice-graph-2d > .overlay > .marker {
 
 /*voice-graph-2d > .overlay > .marker:hover {*/
 
+voice-graph-2d > .overlay > .marker.filtered-out {
+	display: none;
+}
 voice-graph-2d > .overlay > .marker.preview {
 }
 

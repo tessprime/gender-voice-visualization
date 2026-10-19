@@ -156,7 +156,6 @@ class VoiceGraph {
 						if (globalState.get('playingClip') == clip) {
 							globalState.set('playing', !globalState.get('playing'));
 						} else {
-							$('.tab-set button.details').click();
 							globalState.set('playbackTime', 0);
 							globalState.set('playing', false);
 							globalState.set('playingClip', clip);
@@ -183,6 +182,13 @@ class VoiceGraph {
 
 		})
 
+
+		// Hide the clips unticked in the Clips tab (tags.js).
+		globalState.render(['clips', 'hiddenClips'], current => {
+			for (let clip of current.clips) {
+				if (clip.marker) clip.marker.classList.toggle('filtered-out', !clipShown(clip, current.hiddenClips));
+			}
+		});
 
 		globalState.render(['previewClip'], current => {
 			for (let marker of $$('.marker')) {

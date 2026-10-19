@@ -5,6 +5,8 @@ function loadNextClip(names) {
 			for (let existingClip of globalState.get('clips')) {
 				if (existingClip.id == clip.id) return;
 			}
+			clip.example = true;
+			applyStoredExampleTags(clip);
 			globalState.mutate('clips', clips => clips.push(clip));
 			loadNextClip(names);
 		});
@@ -19,6 +21,8 @@ function loadDefaultClips() {
 		for (let existingClip of globalState.get('clips')) {
 			if (existingClip.id == clip.id) return;
 		}
+		clip.example = true;
+		applyStoredExampleTags(clip);
 		globalState.mutate('clips', clips => clips.push(clip));
 		globalState.set('previewClip', clip);
 		globalState.set('playingClip', clip);
