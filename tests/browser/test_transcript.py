@@ -97,6 +97,11 @@ def test_selecting_text_doesnt_seek(page):
         globalState.set('previewClip', clip);
         globalState.set('playingClip', clip);
     }""", CLIP)
+    # Once the page has settled: the player has switched to its WAV
+    # (test_player.py) and the spectrogram is drawn, which moves the
+    # transcript.
+    page.wait_for_function("$('audio.clip').src.startsWith('blob:') && $('#preview-spectrogram').audio")
+    page.wait_for_timeout(200)
     words = page.locator('#preview-transcript .transcript-word')
     first, second = words.nth(0).bounding_box(), words.nth(2).bounding_box()
     page.mouse.move(first['x'] + 2, first['y'] + first['height'] / 2)

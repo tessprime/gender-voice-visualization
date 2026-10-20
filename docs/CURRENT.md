@@ -3,6 +3,64 @@
 What we're working on right now, kept up to date as work happens. The
 longer-term plan is in [ROADMAP.md](ROADMAP.md).
 
+## Goal: seeking lands where it says (player plays a WAV)
+
+Reported: on Tess's 13-minute "Gideon Chapter 1 Part 1" clip, clicking a
+word played audio from well before it, and the highlighted words ran ahead
+of what was heard.
+
+Cause: the clip's audio is a VBR MP3 (stored as `data:audio/wav`, like the
+examples, which are MP3, Ogg and WAV under the same label). Browsers seek
+VBR MP3 from its Xing table (100 entries, byte positions rounded to 1/256
+of the file) and then report the time asked for, since MP3 frames carry
+no timestamps. Measured on that clip in Chromium by recording what the
+`<audio>` element played after each seek and finding it in the decoded
+audio: off by -5.1 s to +0.5 s (16 seeks). A known limitation (FFmpeg
+ticket #3095, W3C media discussions), not ours to fix. A WAV made from the
+decoded audio seeked within the measurement's 93 ms buffer at all 16.
+
+Done:
+- The player (`ui/player.html`) starts each clip from its own audio, then,
+  once decoded (`decodeClipAudio`, shared with the spectrogram), switches
+  to a mono 16-bit WAV of it (`audioBufferToWav` in util.js), keeping the
+  position (`playbackTime`) and whether it was playing. Clips that are
+  already WAV are played as they are (`isWavAudio`). Only the playing
+  clip's WAV is kept. Through the app on Gideon: within 20-53 ms at every
+  point (the recorder's own delay is ~23 ms), where it was seconds.
+- Kept `<audio>` (not Web Audio) for its accessibility and media controls,
+  and because iPhones mute Web Audio with the silent switch. Cost: the WAV,
+  ~70 MB for a 13-minute clip, ~2 MB for 20 s.
+- `audioBufferToWav` converts a block at a time, yielding between blocks:
+  on Gideon the longest main-thread task is ~100 ms (one pass was ~1.8 s).
+  Switching on Gideon takes ~10 s in headless Chromium here, mostly the
+  browser reading the data URI (~2.5 s) and decoding (~2.7 s), which the
+  spectrogram needs anyway; the WAV takes ~0.9 s. Short clips: ~0.2 s.
+- Merged the player's two identical `playingClip` handlers (each added
+  duplicate listeners and set the source twice).
+- Tests: `tests/browser/test_player.py` (4). The seek test makes a
+  10-minute VBR MP3 with ffmpeg (skipped without it; noise in the first
+  20 s of every minute, so the bitrate swings over spans longer than the
+  table's steps), checks that a plain `<audio>` seeks it badly, then that
+  the app's player lands within 0.25 s. Full suite: 81 passed.
+
+Surprises:
+- Bob's MP3 (17 s) lands a steady ~85 ms off in `<audio>`: decoder delay
+  handled differently from `decodeAudioData`, not the seek table.
+- A 4-minute test file with 7 s bursts seeked almost accurately: the
+  rounding only bites when loud and quiet stretches outlast the table's
+  steps. Matching white noise needs every sample offset (its correlation
+  peak is a sample wide); a coarse search missed it.
+- The text-selection test (`test_transcript.py`) became flaky: the
+  spectrogram appearing moves the transcript between measuring and
+  dragging. It now waits for the page to settle.
+
+Open:
+- `decodeClipAudio` caches every decoded clip for the page's lifetime
+  (stereo float: ~280 MB for Gideon); keeping only recent ones, or mono,
+  would cut that.
+- Seeks before the switch (the first moments, or ~10 s on a 13-minute
+  clip) still use the original audio.
+
 ## Goal: transcription endpoints (ROADMAP item 7)
 
 Done:

@@ -31,30 +31,49 @@ try {
 		}
 	});
 
-	globalState.render(['playingClip'], current => {
-		if (current.playingClip && current.playingClip.audio) {
-			progressBar.setAttribute('max', 60);
-			mediaElement.addEventListener('loadedmetadata', updateDuration);
-			mediaElement.addEventListener('durationchange', updateDuration);
-			mediaElement.src = current.playingClip.audio;
-			globalState.set('playbackTime', 0);
-		}
-	});
+	mediaElement.addEventListener('loadedmetadata', updateDuration);
+	mediaElement.addEventListener('durationchange', updateDuration);
 	function updateDuration(evt) {
 		if (mediaElement.duration < 1000 && mediaElement.duration != Infinity) {
 			progressBar.setAttribute('max', mediaElement.duration);
 		};
 	}
 
+	// The clip plays from its own audio at first, then, once decoded (see
+	// decodeClipAudio, shared with the spectrogram), from a WAV of it, which
+	// the browser seeks exactly (see audioBufferToWav). Only the playing
+	// clip's WAV is kept.
+	let wavUrl = null;
+	let switchingSource = false;  // while swapping in the WAV: don't follow currentTime
 	globalState.render(['playingClip'], current => {
 		progressBar.setAttribute('max', 60);
-		if (current.playingClip && current.playingClip.audio) {
-			mediaElement.addEventListener('loadedmetadata', updateDuration);
-			mediaElement.addEventListener('durationchange', updateDuration);
-			mediaElement.src = current.playingClip.audio;
-			globalState.set('playbackTime', 0);
+		if (wavUrl) {
+			URL.revokeObjectURL(wavUrl);
+			wavUrl = null;
 		}
-	})
+		switchingSource = false;
+		let clip = current.playingClip;
+		if (!clip || !clip.audio) return;
+		mediaElement.src = clip.audio;
+		globalState.set('playbackTime', 0);
+		if (isWavAudio(clip.audio)) return;
+		decodeClipAudio(clip).then(audioBufferToWav).then(wav => {
+			if (globalState.get('playingClip') != clip) return;
+			wavUrl = URL.createObjectURL(wav);
+			switchingSource = true;
+			mediaElement.addEventListener('loadedmetadata', () => {
+				if (!switchingSource) return;
+				// Carry on where it should be: playbackTime, which followed
+				// what the original audio reported (after a seek in it, the
+				// time asked for, even if it landed elsewhere), or a seek
+				// made while switching.
+				mediaElement.currentTime = Math.min(globalState.get('playbackTime') || 0, mediaElement.duration);
+				switchingSource = false;
+				if (globalState.get('playing')) mediaElement.play().catch(() => {});
+			}, {once: true});
+			mediaElement.src = wavUrl;
+		}).catch(error => console.warn('Playing the original audio; could not decode it:', error));
+	});
 
 	globalState.render(['playing'], current => {
 		if (current.playing && !globalState.get('playingClip')) {
@@ -63,7 +82,7 @@ try {
 		}
 		if (current.playing) {
 			playPauseButton.classList.add('playing') ;
-			mediaElement.play();
+			if (!switchingSource) mediaElement.play().catch(() => {});
 		} else {
 			playPauseButton.classList.remove('playing') ;
 			mediaElement.pause();
@@ -95,7 +114,7 @@ try {
 
 	globalState.render(['playbackTime'], current => {
 		// (Including 0: back to the start.)
-		if (current.playbackTime != null &&
+		if (!switchingSource && current.playbackTime != null &&
 			current.playbackTime != mediaElement.currentTime
 		) {
 			 mediaElement.currentTime = current.playbackTime;
@@ -109,7 +128,7 @@ try {
 
 	let updateTime = () => {
 		let playbackTime = globalState.get('playbackTime');
-		if (playbackTime != mediaElement.currentTime) {
+		if (!switchingSource && playbackTime != mediaElement.currentTime) {
 			globalState.set('playbackTime', mediaElement.currentTime);
 		}
 		window.requestAnimationFrame(updateTime);

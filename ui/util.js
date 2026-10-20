@@ -109,6 +109,68 @@ function transcriptPieces(transcript, phones) {
 }
 
 
+// A mono 16-bit WAV (a Blob) of an AudioBuffer, as a Promise. The player
+// plays clips from this rather than their own audio: browsers seek
+// compressed audio approximately (in a VBR MP3 by up to several seconds,
+// while reporting the time asked for), but a WAV exactly, since every
+// sample takes the same number of bytes. Converts a block at a time, giving
+// the page a turn between blocks (a 13-minute clip takes ~2 s).
+async function audioBufferToWav(buffer) {
+	const length = buffer.length, rate = buffer.sampleRate;
+	const channels = Array.from({length: buffer.numberOfChannels}, (_, i) => buffer.getChannelData(i));
+	const view = new DataView(new ArrayBuffer(44 + length * 2));
+	const text = (offset, s) => { for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i)); };
+	text(0, 'RIFF');
+	view.setUint32(4, 36 + length * 2, true);
+	text(8, 'WAVE');
+	text(12, 'fmt ');
+	view.setUint32(16, 16, true);         // size of the fmt chunk
+	view.setUint16(20, 1, true);          // PCM
+	view.setUint16(22, 1, true);          // mono
+	view.setUint32(24, rate, true);
+	view.setUint32(28, rate * 2, true);   // bytes per second
+	view.setUint16(32, 2, true);          // bytes per sample
+	view.setUint16(34, 16, true);         // bits per sample
+	text(36, 'data');
+	view.setUint32(40, length * 2, true);
+	// The samples (WAV is little-endian, as are the platforms browsers run on).
+	const samples = new Int16Array(view.buffer, 44, length);
+	const block = 1 << 20;  // ~24 s at 44.1 kHz
+	for (let start = 0; start < length; start += block) {
+		if (start) await new Promise(resolve => setTimeout(resolve));
+		const end = Math.min(start + block, length);
+		if (channels.length == 1) {
+			const [only] = channels;
+			for (let i = start; i < end; i++) {
+				const sample = Math.max(-1, Math.min(1, only[i]));
+				samples[i] = sample < 0 ? sample * 32768 : sample * 32767;
+			}
+		} else {
+			for (let i = start; i < end; i++) {
+				let sum = 0;
+				for (const channel of channels) sum += channel[i];
+				const sample = Math.max(-1, Math.min(1, sum / channels.length));
+				samples[i] = sample < 0 ? sample * 32768 : sample * 32767;
+			}
+		}
+	}
+	return new Blob([view], {type: 'audio/wav'});
+}
+
+// Whether a clip's audio is already a WAV (its bytes, not its stated type:
+// the examples are MP3, Ogg and WAV, all labelled audio/wav).
+function isWavAudio(audio) {
+	const match = /^data:[^,]*;base64,(.{16})/.exec(audio || '');
+	if (!match) return false;
+	try {
+		const head = atob(match[1]);
+		return head.startsWith('RIFF') && head.slice(8, 12) == 'WAVE';
+	} catch (error) {
+		return false;
+	}
+}
+
+
 // Play clip from time (seconds), switching the player to it if needed.
 function playClipFrom(clip, time) {
 	if (!clip) return;
